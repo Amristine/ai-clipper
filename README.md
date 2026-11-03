@@ -29,7 +29,7 @@ Open http://localhost:3000.
 - Video analysis sends the selected video directly to Google Gemini. It does not go through an app-owned backend. Check the provider's data retention and pricing policies before use.
 - Rendering is browser-local, but FFmpeg.wasm is slower and more memory-intensive than native FFmpeg. Large videos may fail on some devices.
 - YouTube/Instagram/TikTok URL downloading is not implemented. A URL cannot reliably be turned into a local video file in-browser due to CORS, authentication and platform restrictions. Use a video file you have rights to upload.
-- Caption UI is currently a placeholder; Whisper transcription, word-level subtitle generation and caption burn-in are planned.
+- Local Whisper transcription is integrated for timestamped subtitle segments; users can export SRT sidecar files. Captions are not yet burned into the MP4 video itself.\n- Smart vertical crop uses MediaPipe face detection on one sampled frame per clip. It centers the crop around the first detected face; full clip-long face tracking is not yet implemented.
 - OpenAI/OpenRouter options are UI placeholders; Gemini video analysis is currently implemented.
 - Crop currently uses center crop; intelligent face tracking is planned.
 - This is an early starter, not yet a production-ready editor. Test with short clips first.
