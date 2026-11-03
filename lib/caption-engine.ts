@@ -17,7 +17,7 @@ export async function transcribeVideoLocally(file:File, ffmpeg:FFmpeg, onStatus:
     whisper = await pipeline("automatic-speech-recognition","Xenova/whisper-base",{device:"wasm"}) as any;
   }
   onStatus("Transcribing audio locally in your browser…");
-  const audioUrl = URL.createObjectURL(new Blob([audio],{type:"audio/wav"}));
+  const audioUrl = URL.createObjectURL(new Blob([audio as BlobPart],{type:"audio/wav"}));
   try {
     const result:any = await (whisper as any)(audioUrl,{chunk_length_s:30,stride_length_s:5,return_timestamps:true});
     const segments:CaptionSegment[]=(result.chunks||[]).map((chunk:any)=>({
