@@ -29,16 +29,16 @@ Open http://localhost:3000.
 - Video analysis sends the selected video directly to Google Gemini. It does not go through an app-owned backend. Check the provider's data retention and pricing policies before use.
 - Rendering is browser-local, but FFmpeg.wasm is slower and more memory-intensive than native FFmpeg. Large videos may fail on some devices.
 - YouTube/Instagram/TikTok URL downloading is not implemented. A URL cannot reliably be turned into a local video file in-browser due to CORS, authentication and platform restrictions. Use a video file you have rights to upload.
-- Local Whisper transcription is integrated for timestamped subtitle segments; users can export SRT sidecar files. Captions are not yet burned into the MP4 video itself.\n- Smart vertical crop uses MediaPipe face detection on one sampled frame per clip. It centers the crop around the first detected face; full clip-long face tracking is not yet implemented.
+- Local Whisper transcription is integrated for timestamped subtitle segments. When captions are enabled and transcription is ready, exports burn karaoke-style word-highlight captions into the MP4 and also download an SRT sidecar. The timing is approximated per word from Whisper's segment-level timestamps (not true word-level alignment).\n- Smart vertical crop uses MediaPipe face detection on one sampled frame per clip. It centers the crop around the first detected face; full clip-long face tracking is not yet implemented.
 - OpenAI/OpenRouter options are UI placeholders; Gemini video analysis is currently implemented.
-- Crop currently uses center crop; intelligent face tracking is planned.
+- Smart vertical crop samples one frame per clip with MediaPipe face detection; continuous tracking is not implemented.
 - This is an early starter, not yet a production-ready editor. Test with short clips first.
 
 ## Privacy & API keys
 The API key is held in React component state for the current session and is not persisted by this app. It is still exposed to the browser runtime and should only be used with a restricted/test key where possible. Never embed your own secret API key in this application.
 
 ## Roadmap
-1. Word-level transcription and caption presets
+1. True word-level transcription alignment and caption presets
 2. User-editable clip start/end points
 3. Smart subject/face crop
 4. Direct video URL ingestion where authorized and technically supported
