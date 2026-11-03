@@ -1,9 +1,8 @@
 import type { FFmpeg } from "@ffmpeg/ffmpeg";
 import { fetchFile } from "@ffmpeg/util";
-import type { Pipeline } from "@huggingface/transformers";
 
 export type CaptionSegment = { start:number; end:number; text:string };
-let whisper: Pipeline | null = null;
+let whisper: any = null;
 
 export async function transcribeVideoLocally(file:File, ffmpeg:FFmpeg, onStatus:(s:string)=>void):Promise<CaptionSegment[]> {
   const input = "caption-input." + (file.name.split(".").pop() || "mp4").replace(/[^a-z0-9]/gi,"");
@@ -15,7 +14,7 @@ export async function transcribeVideoLocally(file:File, ffmpeg:FFmpeg, onStatus:
     const { pipeline, env } = await import("@huggingface/transformers");
     env.allowLocalModels = false;
     env.useBrowserCache = true;
-    whisper = await pipeline("automatic-speech-recognition","Xenova/whisper-base",{device:"wasm"}) as Pipeline;
+    whisper = await pipeline("automatic-speech-recognition","Xenova/whisper-base",{device:"wasm"}) as any;
   }
   onStatus("Transcribing audio locally in your browser…");
   const audioUrl = URL.createObjectURL(new Blob([audio],{type:"audio/wav"}));
