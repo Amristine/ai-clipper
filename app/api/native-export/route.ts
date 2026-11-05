@@ -16,7 +16,7 @@ function run(binary: string, args: string[]) {
     let stderr = "";
     child.stderr.on("data", chunk => { stderr += chunk.toString(); if (stderr.length > 12000) stderr = stderr.slice(-12000); });
     child.on("error", reject);
-    child.on("close", code => resolve({ code: code ?? -1, stderr }));
+    child.on("close", code => resolve({ code: code ?? -1, stderr: stderr + "\\n" + stdout }));
   });
 }
 function escapeFilterPath(p: string) {
