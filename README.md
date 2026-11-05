@@ -1,47 +1,66 @@
 # ClipForge — AI Clipper
 
-Browser-first AI Shorts generator. This starter project lets a user upload a video, send it directly to Gemini for highlight timestamp analysis, then render selected clips in the browser with FFmpeg.wasm.
+ClipForge is a locally installed Next.js app for turning videos into short clips. Clone/download the repository, install dependencies, and run it on your own computer. It does **not** require a ClipForge-hosted backend.
 
-## Stack
-- Next.js 15 + React + TypeScript
-- Tailwind-free custom CSS UI (dark creator studio)
-- Gemini Files API + Gemini video understanding (BYOK)
-- FFmpeg.wasm for local browser rendering
+## Quick start (Windows)
 
-## Run locally
+1. Install **Node.js 20 LTS or newer** from https://nodejs.org/
+2. Download/clone this repository.
+3. Open the project folder and double-click `install.bat` (or run `npm install`).
+4. Double-click `run.bat` (or run `npm run dev`).
+5. Open http://localhost:3000 in Chrome or Edge.
+
+The first run downloads FFmpeg WebAssembly and the Whisper model. These are cached by the browser for later runs. The user can click **Download FFmpeg + Whisper** in the app to preload them.
+
+## Run manually (Windows, macOS, Linux)
 
 ```bash
 npm install
 npm run dev
 ```
 
-Open http://localhost:3000.
+Then visit http://localhost:3000. For a production build:
+
+```bash
+npm run build
+npm run start
+```
+
+## Local CPU/GPU usage
+
+- **Whisper transcription:** Runs locally using Transformers.js. ClipForge tries WebGPU (GPU) first, then automatically falls back to WASM (CPU) if WebGPU is unavailable or fails to initialize.
+- **Video conversion, clipping, cropping and subtitle burn-in:** Runs locally with FFmpeg.wasm in the browser. FFmpeg.wasm is CPU-based in this setup; it does not currently use NVENC/DirectML/CUDA for encoding.
+- **MediaPipe face detection:** Runs locally in the browser and can use browser-supported acceleration.
+- **AI highlight analysis:** Currently sends the video to Google Gemini using the user's own API key. This part is cloud inference, not local CPU/GPU. You can skip Gemini only if you manually add/select clip timestamps (manual timestamp UI is on the roadmap).
+
+For WebGPU inference, use an up-to-date Chrome or Edge with hardware acceleration enabled and current GPU drivers. WebGPU availability depends on browser, OS, GPU and driver. Check Chrome's `chrome://gpu` page. If WebGPU is unavailable, Whisper uses CPU/WASM.
+
+## Hardware and storage
+
+- Processing speed depends on CPU, GPU, RAM, video resolution and browser limits.
+- Model weights are downloaded from Hugging Face on first use and cached by the browser; the browser cache may be cleared by the user or browser.
+- Large videos may run out of browser memory. Try shorter videos or lower-resolution inputs.
+- This version does not install models into a permanent Windows folder; model caching is managed by the browser.
 
 ## Current MVP
-- Upload video file and preview it
-- Configure target clip duration and clip count
-- Gemini BYOK video analysis from the browser
-- AI-generated clip title, timestamp, score and reason
+
+- Upload video and preview
+- Gemini video understanding (BYOK)
+- Suggested highlight clips with titles, scores and reasons
 - Local FFmpeg.wasm clip export
-- Responsive dashboard UI
+- Local Whisper transcription and captions
+- SRT sidecar and karaoke-style ASS captions
+- Smart vertical crop with MediaPipe face detection
 
-## Important limitations
-- Video analysis sends the selected video directly to Google Gemini. It does not go through an app-owned backend. Check the provider's data retention and pricing policies before use.
-- Rendering is browser-local, but FFmpeg.wasm is slower and more memory-intensive than native FFmpeg. Large videos may fail on some devices.
-- YouTube/Instagram/TikTok URL downloading is not implemented. A URL cannot reliably be turned into a local video file in-browser due to CORS, authentication and platform restrictions. Use a video file you have rights to upload.
-- Local Whisper transcription is integrated for timestamped subtitle segments. When captions are enabled and transcription is ready, exports burn karaoke-style word-highlight captions into the MP4 and also download an SRT sidecar. The timing is approximated per word from Whisper's segment-level timestamps (not true word-level alignment).\n- Smart vertical crop uses MediaPipe face detection on one sampled frame per clip. It centers the crop around the first detected face; full clip-long face tracking is not yet implemented.
-- OpenAI/OpenRouter options are UI placeholders; Gemini video analysis is currently implemented.
-- Smart vertical crop samples one frame per clip with MediaPipe face detection; continuous tracking is not implemented.
-- This is an early starter, not yet a production-ready editor. Test with short clips first.
+## Important limitations and privacy
 
-## Privacy & API keys
-The API key is held in React component state for the current session and is not persisted by this app. It is still exposed to the browser runtime and should only be used with a restricted/test key where possible. Never embed your own secret API key in this application.
+- Gemini video analysis sends the selected video directly to Google's API. Review Google's data retention/pricing policies. ClipForge does not proxy the upload through its own server.
+- API keys are kept in React component state for the current session and are not persisted. They are still exposed to the browser runtime; use your own restricted/test key.
+- WebGPU is not supported on every device/browser and can fail for some model/runtime combinations. ClipForge attempts CPU/WASM fallback.
+- FFmpeg.wasm is slower and more memory-intensive than native FFmpeg, particularly for large files.
+- YouTube/Instagram/TikTok URL downloading is not implemented. Use local files you have permission to process.
+- OpenAI/OpenRouter options are UI placeholders; Gemini analysis is currently implemented.
 
-## Roadmap
-1. True word-level transcription alignment and caption presets
-2. User-editable clip start/end points
-3. Smart subject/face crop
-4. Direct video URL ingestion where authorized and technically supported
-5. OpenAI-compatible transcript analysis provider adapter
-6. ZIP export and batch queue
-7. IndexedDB project persistence
+## License
+
+Check the licenses of FFmpeg, Transformers.js, model weights, and any other bundled or downloaded dependencies before redistributing builds.
