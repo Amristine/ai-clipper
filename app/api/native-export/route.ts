@@ -19,7 +19,8 @@ function run(binary: string, args: string[], onProgress?: (outTimeMs:number)=>vo
     child.stdout.on("data", chunk => {
       const data=chunk.toString(); output += data;
       if (output.length > 16000) output = output.slice(-16000);
-      if(onProgress){progressLine+=data;const lines=progressLine.split(/\\r?\\n/);progressLine=lines.pop()||"";for(const line of lines){const m=line.match(/^out_time_ms=(\\d+)/);if(m)onProgress(Number(m[1]));}}
+      if(onProgress){progressLine+=data;const lines=progressLine.split(/\\r?\
+/);progressLine=lines.pop()||"";for(const line of lines){const m=line.match(/^out_time_ms=(\\d+)/);if(m)onProgress(Number(m[1]));}}
     });
     child.stderr.on("data", chunk => { output += chunk.toString(); if (output.length > 16000) output = output.slice(-16000); });
     child.on("error", reject);
@@ -96,7 +97,8 @@ export async function POST(req: NextRequest) {
     let result: { code: number; output: string } = { code: -1, output: "" };
 
     for (const encoder of attempts) {
-      setNativeExportProgress(jobId,{progress:3,phase:"Trying "+encoder.label+" hardware encoder",encoder:encoder.label});\n      result = await run(binary, [...inputArgs, "-c:v", encoder.name, ...encoder.args, "-progress", "pipe:1", "-nostats", ...outputArgs], outTimeMs => setNativeExportProgress(jobId,{progress:Math.min(96,Math.max(3,Math.round((outTimeMs/1000000/clipDuration)*90)+3)),phase:"Encoding with "+encoder.label,encoder:encoder.label}));
+      setNativeExportProgress(jobId,{progress:3,phase:"Trying "+encoder.label+" hardware encoder",encoder:encoder.label});
+      result = await run(binary, [...inputArgs, "-c:v", encoder.name, ...encoder.args, "-progress", "pipe:1", "-nostats", ...outputArgs], outTimeMs => setNativeExportProgress(jobId,{progress:Math.min(96,Math.max(3,Math.round((outTimeMs/1000000/clipDuration)*90)+3)),phase:"Encoding with "+encoder.label,encoder:encoder.label}));
       if (result.code === 0) {
         chosen = encoder.name;
         label = encoder.label;
@@ -105,7 +107,8 @@ export async function POST(req: NextRequest) {
     }
 
     if (chosen === "libx264") {
-      setNativeExportProgress(jobId,{progress:3,phase:"Hardware encoder unavailable/failed · CPU fallback",encoder:"CPU · libx264"});\n      result = await run(binary, [...inputArgs, "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-progress", "pipe:1", "-nostats", ...outputArgs], outTimeMs => setNativeExportProgress(jobId,{progress:Math.min(96,Math.max(3,Math.round((outTimeMs/1000000/clipDuration)*90)+3)),phase:"Encoding with CPU · libx264",encoder:"CPU · libx264"}));
+      setNativeExportProgress(jobId,{progress:3,phase:"Hardware encoder unavailable/failed · CPU fallback",encoder:"CPU · libx264"});
+      result = await run(binary, [...inputArgs, "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-progress", "pipe:1", "-nostats", ...outputArgs], outTimeMs => setNativeExportProgress(jobId,{progress:Math.min(96,Math.max(3,Math.round((outTimeMs/1000000/clipDuration)*90)+3)),phase:"Encoding with CPU · libx264",encoder:"CPU · libx264"}));
     }
     if (result.code !== 0) {
       return NextResponse.json({
@@ -114,7 +117,9 @@ export async function POST(req: NextRequest) {
       }, { status: 500 });
     }
 
-    setNativeExportProgress(jobId,{progress:98,phase:"Preparing download",encoder:label});\n    const bytes = await readFile(outputPath);\n    setNativeExportProgress(jobId,{progress:100,phase:"Export complete",encoder:label});
+    setNativeExportProgress(jobId,{progress:98,phase:"Preparing download",encoder:label});
+    const bytes = await readFile(outputPath);
+    setNativeExportProgress(jobId,{progress:100,phase:"Export complete",encoder:label});
     return new NextResponse(new Uint8Array(bytes), {
       headers: {
         "Content-Type": "video/mp4",
