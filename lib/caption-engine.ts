@@ -4,18 +4,15 @@ import { fetchFile } from "@ffmpeg/util";
 export type CaptionSegment = { start:number; end:number; text:string };
 let whisper: any = null;
 
+export async function loadWhisperModel(onProgress?:(progress:number,status:string)=>void):Promise<any> { if(whisper){onProgress?.(100,"Whisper model is already loaded");return whisper;} const {pipeline,env}=await import("@huggingface/transformers");env.allowLocalModels=false;env.useBrowserCache=true;whisper=await pipeline("automatic-speech-recognition","Xenova/whisper-base",{device:"wasm",progress_callback:(p:any)=>{if(p?.status==="progress"&&typeof p.progress==="number")onProgress?.(p.progress,(p.file||"Whisper files")+" · "+Math.round(p.progress)+"%");else if(p?.status)onProgress?.(0,"Whisper: "+p.status);}}) as any;onProgress?.(100,"Whisper model ready");return whisper;}
+
 export async function transcribeVideoLocally(file:File, ffmpeg:FFmpeg, onStatus:(s:string)=>void):Promise<CaptionSegment[]> {
   const input = "caption-input." + (file.name.split(".").pop() || "mp4").replace(/[^a-z0-9]/gi,"");
   await ffmpeg.writeFile(input, await fetchFile(file));
   await ffmpeg.exec(["-i",input,"-vn","-ac","1","-ar","16000","-c:a","pcm_s16le","caption-audio.wav"]);
   const audio = await ffmpeg.readFile("caption-audio.wav");
   onStatus("Loading Whisper model (first run downloads it)…");
-  if (!whisper) {
-    const { pipeline, env } = await import("@huggingface/transformers");
-    env.allowLocalModels = false;
-    env.useBrowserCache = true;
-    whisper = await pipeline("automatic-speech-recognition","Xenova/whisper-base",{device:"wasm"}) as any;
-  }
+  await loadWhisperModel((progress,status)=>onStatus(status));
   onStatus("Transcribing audio locally in your browser…");
   const audioUrl = URL.createObjectURL(new Blob([audio as BlobPart],{type:"audio/wav"}));
   try {
