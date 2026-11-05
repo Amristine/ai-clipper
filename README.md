@@ -26,6 +26,27 @@ npm run build
 npm run start
 ```
 
+## Native FFmpeg export (GPU encoding when supported)
+
+ClipForge also offers a **Native FFmpeg · GPU/CPU** export button. This invokes FFmpeg through the locally running Next.js Node server, so video processing remains on the user's machine.
+
+### Windows setup
+
+1. Install FFmpeg from a Windows build that includes NVIDIA NVENC support (for example, a current Gyan FFmpeg build): https://www.gyan.dev/ffmpeg/builds/
+2. Add the FFmpeg `bin` folder to your Windows PATH, or set `FFMPEG_PATH` to the full path of `ffmpeg.exe`.
+3. Open a new terminal and check:
+   ```powershell
+   ffmpeg -hide_banner -encoders | findstr nvenc
+   ```
+   Look for `h264_nvenc`.
+4. Start ClipForge using `npm run dev` or `run.bat`, then choose **Native FFmpeg · GPU/CPU** on a clip.
+
+The native exporter attempts H.264 NVENC when the local FFmpeg build exposes it and the GPU/driver initialization works. If the encode fails, it retries with CPU `libx264`. You can check the app status after export to see which encoder was used.
+
+**Requirements:** NVIDIA GPU with NVENC support, compatible NVIDIA drivers, and FFmpeg compiled with NVENC. Having an NVIDIA GPU alone does not enable NVENC in a FFmpeg build. FFmpeg documents NVENC build and runtime requirements here: https://docs.nvidia.com/video-technologies/video-codec-sdk/13.1/ffmpeg-with-nvidia-gpu/
+
+Native encoding requires the local Node server. It is not available when the static frontend is hosted on a remote server. The endpoint writes temporary video files under the OS temp directory and removes them after processing.
+
 ## Local CPU/GPU usage
 
 - **Whisper transcription:** Runs locally using Transformers.js. ClipForge tries WebGPU (GPU) first, then automatically falls back to WASM (CPU) if WebGPU is unavailable or fails to initialize.
