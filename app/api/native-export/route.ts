@@ -14,9 +14,11 @@ function run(binary: string, args: string[]) {
   return new Promise<{ code: number; stderr: string }>((resolve, reject) => {
     const child = spawn(binary, args, { windowsHide: true });
     let stderr = "";
+    let stdout = "";
+    child.stdout.on("data", chunk => { stdout += chunk.toString(); if (stdout.length > 12000) stdout = stdout.slice(-12000); });
     child.stderr.on("data", chunk => { stderr += chunk.toString(); if (stderr.length > 12000) stderr = stderr.slice(-12000); });
     child.on("error", reject);
-    child.on("close", code => resolve({ code: code ?? -1, stderr: stderr + "\\n" + stdout }));
+    child.on("close", code => resolve({ code: code ?? -1, stderr: stderr + "\n" + stdout }));
   });
 }
 function escapeFilterPath(p: string) {
