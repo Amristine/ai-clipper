@@ -16,9 +16,28 @@ export default function Home() {
  function onFile(f?:File){ if(!f)return; if(!f.type.startsWith("video/")){alert("Please choose a video file.");return;} setFile(f);setClips([]);setExports({});setTranscript([]);setCaptionStatus("Not generated");setStatus("Video loaded"); }
  function onMeta(){setDuration(videoRef.current?.duration||0);}
  async function analyze(){
-  if(!file){alert("Upload a video first. A URL alone cannot be rendered locally.");return;} if(!apiKey){alert("Add your AI API key in AI settings.");return;}
+  if(!file){alert("Upload a video first. A URL alone cannot be rendered locally.");return;} if(analysisMode==="gemini"&&!apiKey){alert("Add your Gemini API key in AI settings, or choose Local Whisper mode.");return;}
   setBusy(true);setStatus("Preparing audio/video analysis…");
   try{
+   if(analysisMode==="local"){
+    let caps=transcript;
+    if(!caps.length){
+     let ff=ffmpegRef.current;
+     if(!ff){ff=new FFmpeg();ffmpegRef.current=ff;await ff.load({coreURL:await toBlobURL("https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js","text/javascript"),wasmURL:await toBlobURL("https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm","application/wasm")});ffmpegRef.current=ff;}
+     caps=await transcribeVideoLocally(file,ff,setCaptionStatus);setTranscript(caps);
+    }
+    if(!caps.length)throw new Error("Local Whisper returned no transcript. Try Gemini API mode.");
+    const target=Math.max(10,Number(length)||30), max=Math.max(1,Number(clipCount)||5);
+    const suggestions:Clip[]=[];let cursor=0;
+    while(cursor<caps.length&&suggestions.length<max){
+     const first=caps[cursor];const start=Math.max(0,first.start);let end=first.end;const words=[first.text];let j=cursor+1;
+     while(j<caps.length&&end-start<target){if(caps[j].start-end>5&&end-start>=target*.55)break;end=caps[j].end;words.push(caps[j].text);j++;}
+     if(end-start>=Math.min(8,target*.45)){const title=words.join(" ").replace(/\\s+/g," ").trim();suggestions.push({id:String(suggestions.length+1),start:start,end:Math.min(duration,end),title:title.slice(0,72)||"Speech highlight",score:Math.min(95,65+Math.round(Math.min(title.length,300)/15)),reason:"Selected using local Whisper transcript"});}
+     cursor=Math.max(j,cursor+1);
+    }
+    if(!suggestions.length)throw new Error("Could not build clips from the transcript. Try Gemini API mode.");
+    setClips(suggestions);setStatus("Local Whisper · "+suggestions.length+" clip suggestions");setCaptionStatus("Transcript ready · "+caps.length+" segments");return;
+   }
    // Browser-only MVP: ask Gemini to inspect the uploaded video via its Files API.
    // File upload is directly to the provider; your own app server is not involved.
    const mime=file.type||"video/mp4"; const upload=await fetch(`https://generativelanguage.googleapis.com/upload/v1beta/files?key=${encodeURIComponent(apiKey)}`,{method:"POST",headers:{"X-Goog-Upload-Protocol":"resumable","X-Goog-Upload-Command":"start","X-Goog-Upload-Header-Content-Length":String(file.size),"X-Goog-Upload-Header-Content-Type":mime,"Content-Type":"application/json"},body:JSON.stringify({file:{display_name:file.name}})});
