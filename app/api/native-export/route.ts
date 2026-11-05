@@ -11,18 +11,33 @@ function ffmpegPath() {
   return process.env.FFMPEG_PATH || (process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg");
 }
 function run(binary: string, args: string[]) {
-  return new Promise<{ code: number; stderr: string }>((resolve, reject) => {
+  return new Promise<{ code: number; output: string }>((resolve, reject) => {
     const child = spawn(binary, args, { windowsHide: true });
-    let stderr = "";
-    let stdout = "";
-    child.stdout.on("data", chunk => { stdout += chunk.toString(); if (stdout.length > 12000) stdout = stdout.slice(-12000); });
-    child.stderr.on("data", chunk => { stderr += chunk.toString(); if (stderr.length > 12000) stderr = stderr.slice(-12000); });
+    let output = "";
+    child.stdout.on("data", chunk => { output += chunk.toString(); if (output.length > 16000) output = output.slice(-16000); });
+    child.stderr.on("data", chunk => { output += chunk.toString(); if (output.length > 16000) output = output.slice(-16000); });
     child.on("error", reject);
-    child.on("close", code => resolve({ code: code ?? -1, stderr: stderr + "\n" + stdout }));
+    child.on("close", code => resolve({ code: code ?? -1, output }));
   });
 }
 function escapeFilterPath(p: string) {
   return p.replace(/\\/g, "/").replace(/:/g, "\\:").replace(/'/g, "\\'");
+}
+
+type Encoder = { name: string; label: string; args: string[] };
+function hardwareEncoders(platform: NodeJS.Platform): Encoder[] {
+  // Try broadly compatible H.264 hardware encoders first. FFmpeg may list an
+  // encoder even when the driver/device cannot initialize, so every attempt
+  // is validated by actually encoding and errors fall through to the next.
+  const encoders: Encoder[] = [
+    { name: "h264_nvenc", label: "NVIDIA NVENC", args: ["-preset", "p4", "-cq", "23"] },
+    { name: "h264_amf", label: "AMD AMF", args: ["-quality", "balanced", "-rc", "cqp", "-qp_i", "23", "-qp_p", "23"] },
+    { name: "h264_qsv", label: "Intel Quick Sync", args: ["-preset", "medium", "-global_quality", "23"] },
+  ];
+  if (platform === "darwin") {
+    encoders.push({ name: "h264_videotoolbox", label: "Apple VideoToolbox", args: ["-b:v", "8M"] });
+  }
+  return encoders;
 }
 
 export async function POST(req: NextRequest) {
@@ -42,46 +57,61 @@ export async function POST(req: NextRequest) {
     const outputPath = path.join(workDir, "clipforge-output.mp4");
     await writeFile(inputPath, Buffer.from(await video.arrayBuffer()));
 
-    let filter = ratio === "9:16"
+    const filter = ratio === "9:16"
       ? "crop=ih*9/16:ih:min(max(iw*" + cropX.toFixed(3) + "-ih*9/32\\,0)\\,iw-ih*9/16):0,scale=1080:1920"
       : ratio === "1:1" ? "crop=min(iw\\,ih):min(iw\\,ih),scale=1080:1080" : "scale=1920:-2";
 
     const ass = form.get("ass");
+    let finalFilter = filter;
     if (typeof ass === "string" && ass.trim()) {
       const assPath = path.join(workDir, "captions.ass");
       await writeFile(assPath, ass, "utf8");
-      filter += ",subtitles='" + escapeFilterPath(assPath) + "'";
+      finalFilter += ",subtitles='" + escapeFilterPath(assPath) + "'";
     }
 
     const binary = ffmpegPath();
-    const encoders = await run(binary, ["-hide_banner", "-encoders"]);
-    const nvencAvailable = encoders.code === 0 && /h264_nvenc/.test(encoders.stderr);
-    const base = ["-hide_banner", "-y", "-ss", String(start), "-i", inputPath, "-t", String(end - start), "-vf", filter];
-    const tail = ["-c:a", "aac", "-movflags", "+faststart", outputPath];
-    let encoder = "libx264";
-    let result = { code: -1, stderr: "" };
-
-    if (nvencAvailable) {
-      encoder = "h264_nvenc";
-      result = await run(binary, [...base, "-c:v", encoder, "-preset", "p4", "-cq", "23", ...tail]);
+    const encoderList = await run(binary, ["-hide_banner", "-encoders"]);
+    if (encoderList.code !== 0) {
+      return NextResponse.json({ error: "FFmpeg could not start. Install FFmpeg and add it to PATH or set FFMPEG_PATH.", details: encoderList.output.slice(-3000) }, { status: 500 });
     }
-    if (!nvencAvailable || result.code !== 0) {
-      encoder = "libx264";
-      result = await run(binary, [...base, "-c:v", encoder, "-preset", "veryfast", "-crf", "23", ...tail]);
+    const available = new Set<string>();
+    for (const name of ["h264_nvenc", "h264_amf", "h264_qsv", "h264_videotoolbox"]) {
+      if (new RegExp("\\b" + name + "\\b").test(encoderList.output)) available.add(name);
+    }
+
+    const inputArgs = ["-hide_banner", "-y", "-ss", String(start), "-i", inputPath, "-t", String(end - start), "-vf", finalFilter];
+    const outputArgs = ["-c:a", "aac", "-movflags", "+faststart", outputPath];
+    const attempts = hardwareEncoders(process.platform).filter(e => available.has(e.name));
+    let chosen = "libx264";
+    let label = "CPU · libx264";
+    let result: { code: number; output: string } = { code: -1, output: "" };
+
+    for (const encoder of attempts) {
+      result = await run(binary, [...inputArgs, "-c:v", encoder.name, ...encoder.args, ...outputArgs]);
+      if (result.code === 0) {
+        chosen = encoder.name;
+        label = encoder.label;
+        break;
+      }
+    }
+
+    if (chosen === "libx264") {
+      result = await run(binary, [...inputArgs, "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", ...outputArgs]);
     }
     if (result.code !== 0) {
       return NextResponse.json({
-        error: "Native FFmpeg export failed. Install FFmpeg and ensure it is in PATH or set FFMPEG_PATH.",
-        details: result.stderr.slice(-4000)
+        error: "Native FFmpeg export failed. Verify your FFmpeg install and GPU drivers.",
+        details: result.output.slice(-4000)
       }, { status: 500 });
     }
 
     const bytes = await readFile(outputPath);
-    return new NextResponse(bytes, {
+    return new NextResponse(new Uint8Array(bytes), {
       headers: {
         "Content-Type": "video/mp4",
         "Content-Disposition": 'attachment; filename="clipforge-native.mp4"',
-        "X-ClipForge-Encoder": encoder
+        "X-ClipForge-Encoder": chosen,
+        "X-ClipForge-Hardware": label
       }
     });
   } catch (error) {
