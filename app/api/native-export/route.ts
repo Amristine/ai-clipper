@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { setNativeExportProgress, deleteNativeExportProgress } from "./progress-store";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -10,11 +11,16 @@ export const maxDuration = 300;
 function ffmpegPath() {
   return process.env.FFMPEG_PATH || (process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg");
 }
-function run(binary: string, args: string[]) {
+function run(binary: string, args: string[], onProgress?: (outTimeMs:number)=>void) {
   return new Promise<{ code: number; output: string }>((resolve, reject) => {
     const child = spawn(binary, args, { windowsHide: true });
     let output = "";
-    child.stdout.on("data", chunk => { output += chunk.toString(); if (output.length > 16000) output = output.slice(-16000); });
+    let progressLine = "";
+    child.stdout.on("data", chunk => {
+      const data=chunk.toString(); output += data;
+      if (output.length > 16000) output = output.slice(-16000);
+      if(onProgress){progressLine+=data;const lines=progressLine.split(/\\r?\\n/);progressLine=lines.pop()||"";for(const line of lines){const m=line.match(/^out_time_ms=(\\d+)/);if(m)onProgress(Number(m[1]));}}
+    });
     child.stderr.on("data", chunk => { output += chunk.toString(); if (output.length > 16000) output = output.slice(-16000); });
     child.on("error", reject);
     child.on("close", code => resolve({ code: code ?? -1, output }));
@@ -46,6 +52,7 @@ export async function POST(req: NextRequest) {
     const form = await req.formData();
     const video = form.get("video");
     if (!(video instanceof File)) return NextResponse.json({ error: "Missing video file" }, { status: 400 });
+    const jobId = String(form.get("jobId") || "");
     const start = Number(form.get("start"));
     const end = Number(form.get("end"));
     const ratio = String(form.get("ratio") || "9:16");
@@ -55,6 +62,7 @@ export async function POST(req: NextRequest) {
 
     const inputPath = path.join(workDir, "source-video");
     const outputPath = path.join(workDir, "clipforge-output.mp4");
+    setNativeExportProgress(jobId,{progress:2,phase:"Saving input video locally"});
     await writeFile(inputPath, Buffer.from(await video.arrayBuffer()));
 
     const filter = ratio === "9:16"
@@ -82,6 +90,7 @@ export async function POST(req: NextRequest) {
     const inputArgs = ["-hide_banner", "-y", "-ss", String(start), "-i", inputPath, "-t", String(end - start), "-vf", finalFilter];
     const outputArgs = ["-c:a", "aac", "-movflags", "+faststart", outputPath];
     const attempts = hardwareEncoders(process.platform).filter(e => available.has(e.name));
+    const clipDuration=Math.max(0.01,end-start);
     let chosen = "libx264";
     let label = "CPU · libx264";
     let result: { code: number; output: string } = { code: -1, output: "" };
@@ -105,7 +114,7 @@ export async function POST(req: NextRequest) {
       }, { status: 500 });
     }
 
-    const bytes = await readFile(outputPath);
+    setNativeExportProgress(jobId,{progress:98,phase:"Preparing download",encoder:label});\n    const bytes = await readFile(outputPath);\n    setNativeExportProgress(jobId,{progress:100,phase:"Export complete",encoder:label});
     return new NextResponse(new Uint8Array(bytes), {
       headers: {
         "Content-Type": "video/mp4",
