@@ -57,7 +57,7 @@ export default function Home() {
    if(captions&&transcript.length)form.append("ass",captionsToAss(transcript,c.start,c.end));
    const response=await fetch("/api/native-export",{method:"POST",body:form});
    if(!response.ok){const err=await response.json().catch(()=>({error:"Native FFmpeg failed"}));throw new Error(err.error+(err.details?"\\n"+err.details:""));}
-   const encoder=response.headers.get("X-ClipForge-Encoder")||"native FFmpeg";
+   const encoder=response.headers.get("X-ClipForge-Hardware")||response.headers.get("X-ClipForge-Encoder")||"native FFmpeg";
    const blob=await response.blob();const objectUrl=URL.createObjectURL(blob);
    setExports(prev=>({...prev,[c.id]:objectUrl}));
    const a=document.createElement("a");a.href=objectUrl;a.download="clip-"+c.id+"-native.mp4";a.click();
