@@ -50,7 +50,7 @@ Native encoding requires the local Node server. It is not available when the sta
 ## Local CPU/GPU usage
 
 - **Whisper transcription:** Runs locally using Transformers.js. ClipForge tries WebGPU (GPU) first, then automatically falls back to WASM (CPU) if WebGPU is unavailable or fails to initialize.
-- **Video conversion, clipping, cropping and subtitle burn-in:** Runs locally with FFmpeg.wasm in the browser. FFmpeg.wasm is CPU-based in this setup; it does not currently use NVENC/DirectML/CUDA for encoding.
+- **Video conversion, clipping, cropping and subtitle burn-in:** Browser FFmpeg.wasm export is CPU-based. Choose **Native FFmpeg · GPU/CPU** to use the local machine's supported native hardware encoder (NVIDIA/AMD/Intel/Apple) or automatic CPU fallback.
 - **MediaPipe face detection:** Runs locally in the browser and can use browser-supported acceleration.
 - **AI highlight analysis:** Currently sends the video to Google Gemini using the user's own API key. This part is cloud inference, not local CPU/GPU. You can skip Gemini only if you manually add/select clip timestamps (manual timestamp UI is on the roadmap).
 
