@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { setNativeExportProgress, deleteNativeExportProgress } from "./progress-store";
+import { setNativeExportProgress } from "./progress-store";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -17,12 +17,23 @@ function run(binary: string, args: string[], onProgress?: (outTimeMs:number)=>vo
     let output = "";
     let progressLine = "";
     child.stdout.on("data", chunk => {
-      const data=chunk.toString(); output += data;
+      const data = chunk.toString();
+      output += data;
       if (output.length > 16000) output = output.slice(-16000);
-      if(onProgress){progressLine+=data;const lines=progressLine.split(/\\r?\
-/);progressLine=lines.pop()||"";for(const line of lines){const m=line.match(/^out_time_ms=(\\d+)/);if(m)onProgress(Number(m[1]));}}
+      if (onProgress) {
+        progressLine += data;
+        const lines = progressLine.split(/\r?\n/);
+        progressLine = lines.pop() || "";
+        for (const line of lines) {
+          const match = line.match(/^out_time_ms=(\d+)/);
+          if (match) onProgress(Number(match[1]));
+        }
+      }
     });
-    child.stderr.on("data", chunk => { output += chunk.toString(); if (output.length > 16000) output = output.slice(-16000); });
+    child.stderr.on("data", chunk => {
+      output += chunk.toString();
+      if (output.length > 16000) output = output.slice(-16000);
+    });
     child.on("error", reject);
     child.on("close", code => resolve({ code: code ?? -1, output }));
   });
