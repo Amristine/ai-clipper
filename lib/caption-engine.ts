@@ -4,7 +4,33 @@ import { fetchFile } from "@ffmpeg/util";
 export type CaptionSegment = { start:number; end:number; text:string };
 let whisper: any = null;
 
-export async function loadWhisperModel(onProgress?:(progress:number,status:string)=>void):Promise<any> { if(whisper){onProgress?.(100,"Whisper model is already loaded");return whisper;} const {pipeline,env}=await import("@huggingface/transformers");env.allowLocalModels=false;env.useBrowserCache=true;whisper=await pipeline("automatic-speech-recognition","Xenova/whisper-base",{device:"wasm",progress_callback:(p:any)=>{if(p?.status==="progress"&&typeof p.progress==="number")onProgress?.(p.progress,(p.file||"Whisper files")+" · "+Math.round(p.progress)+"%");else if(p?.status)onProgress?.(0,"Whisper: "+p.status);}}) as any;onProgress?.(100,"Whisper model ready");return whisper;}
+export async function loadWhisperModel(onProgress?:(progress:number,status:string)=>void):Promise<any> {
+  if(whisper){onProgress?.(100,"Whisper model is already loaded");return whisper;}
+  const {pipeline,env}=await import("@huggingface/transformers");
+  env.allowLocalModels=false;
+  env.useBrowserCache=true;
+  const progress=(p:any)=> {
+    if(p?.status==="progress"&&typeof p.progress==="number")
+      onProgress?.(p.progress,(p.file||"Whisper files")+" · "+Math.round(p.progress)+"%");
+    else if(p?.status) onProgress?.(0,"Whisper: "+p.status);
+  };
+  // Prefer the user's GPU through WebGPU. If WebGPU is unsupported or the
+  // model/runtime fails to initialize, fall back to CPU/WASM automatically.
+  if(typeof navigator!=="undefined" && "gpu" in navigator) {
+    try {
+      onProgress?.(0,"Initializing Whisper on GPU (WebGPU)…");
+      whisper=await pipeline("automatic-speech-recognition","Xenova/whisper-base",{device:"webgpu",progress_callback:progress}) as any;
+      onProgress?.(100,"Whisper ready · GPU (WebGPU)");
+      return whisper;
+    } catch(error) {
+      console.warn("Whisper WebGPU initialization failed; falling back to CPU/WASM.",error);
+      onProgress?.(0,"GPU unavailable; switching to CPU/WASM…");
+    }
+  }
+  whisper=await pipeline("automatic-speech-recognition","Xenova/whisper-base",{device:"wasm",progress_callback:progress}) as any;
+  onProgress?.(100,"Whisper ready · CPU (WASM)");
+  return whisper;
+}
 
 export async function transcribeVideoLocally(file:File, ffmpeg:FFmpeg, onStatus:(s:string)=>void):Promise<CaptionSegment[]> {
   const input = "caption-input." + (file.name.split(".").pop() || "mp4").replace(/[^a-z0-9]/gi,"");
