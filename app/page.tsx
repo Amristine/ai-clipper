@@ -59,7 +59,50 @@ export default function Home() {
  }
  async function generateCaptions(){if(!file)return;setBusy(true);try{let ff=ffmpegRef.current;if(!ff){ff=new FFmpeg();ffmpegRef.current=ff;await ff.load({coreURL:await toBlobURL("https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js","text/javascript"),wasmURL:await toBlobURL("https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm","application/wasm")});ffmpegRef.current=ff;}const caps=await transcribeVideoLocally(file,ff,setCaptionStatus);setTranscript(caps);setCaptionStatus(`Ready · ${caps.length} caption segments`);}catch(e:any){setCaptionStatus("Transcription failed");alert("Caption generation failed: "+(e.message||e));}finally{setBusy(false);}}
  function downloadSrt(clip:Clip){const srt=captionsToSrt(transcript,clip.start,clip.end);if(!srt){alert("Generate captions first.");return;}const u=URL.createObjectURL(new Blob([srt],{type:"text/plain;charset=utf-8"}));const a=document.createElement("a");a.href=u;a.download=`clip-${clip.id}.srt`;a.click();URL.revokeObjectURL(u);}
- async function exportClip(c:Clip){if(!file)return;setBusy(true);setStatus("Loading local video engine…");try{let ff=ffmpegRef.current;if(!ff){ff=new FFmpeg();ffmpegRef.current=ff;ff.on("log",({message})=>console.log(message));await ff.load({coreURL:await toBlobURL("https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js","text/javascript"),wasmURL:await toBlobURL("https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm","application/wasm")});}const input="input."+((file.name.split(".").pop()||"mp4").replace(/[^a-z0-9]/gi,""));await ff.writeFile(input,await fetchFile(file));let cx=c.cropX;if(cx===undefined&&smartCrop&&ratio==="9:16"&&videoRef.current){setStatus("Detecting face for smart crop…");cx=await detectFaceCenterX(videoRef.current,c.start+(c.end-c.start)*.4);setClips(prev=>prev.map(x=>x.id===c.id?{...x,cropX:cx}:x));}const output=`clip-${c.id}.mp4`;const crop=ratio==="9:16"?`crop=ih*9/16:ih:min(max(iw*${(cx??.5).toFixed(3)}-ih*9/32\\,0)\\,iw-ih*9/16):0,scale=1080:1920`:ratio==="1:1"?"crop=min(iw\\,ih):min(iw\\,ih),scale=1080:1080":"scale=1920:-2";let vf=crop;if(captions&&transcript.length){const ass=captionsToAss(transcript,c.start,c.end);await ff.writeFile("clip-captions.ass",new TextEncoder().encode(ass));vf+=`,subtitles=clip-captions.ass`;}await ff.exec(["-ss",String(c.start),"-i",input,"-t",String(c.end-c.start),"-vf",vf,"-c:v","libx264","-preset","slow","-crf","16","-c:a","aac","-movflags","+faststart",output]);const bytes=await ff.readFile(output);const blob=new Blob([bytes as BlobPart],{type:"video/mp4"});const objectUrl=URL.createObjectURL(blob);setExports(prev=>({...prev,[c.id]:objectUrl}));const a=document.createElement("a");a.href=objectUrl;a.download=output;a.click();if(captions&&transcript.length)downloadSrt(c);setStatus(captions&&transcript.length?"Clip exported with captions":"Clip exported");}catch(e:any){alert("Export failed: "+(e.message||e));setStatus("Export failed");}finally{setBusy(false);}}
+ async function exportClip(c:Clip){
+  if(!file)return;
+  setBusy(true);setStatus("Loading local video engine…");
+  try{
+   let ff=ffmpegRef.current;
+   if(!ff){ff=new FFmpeg();ffmpegRef.current=ff;ff.on("log",({message})=>console.log(message));await ff.load({coreURL:await toBlobURL("https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js","text/javascript"),wasmURL:await toBlobURL("https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm","application/wasm")});ffmpegRef.current=ff;}
+   const input="input."+((file.name.split(".").pop()||"mp4").replace(/[^a-z0-9]/gi,""));
+   await ff.writeFile(input,await fetchFile(file));
+   let cx=c.cropX;
+   if(cx===undefined&&smartCrop&&ratio==="9:16"&&videoRef.current){setStatus("Detecting face for smart crop…");cx=await detectFaceCenterX(videoRef.current,c.start+(c.end-c.start)*.4);setClips(prev=>prev.map(x=>x.id===c.id?{...x,cropX:cx}:x));}
+   const clipDuration=c.end-c.start;
+   let keepRanges:ClipRange[]=[{start:0,end:clipDuration}];
+   if(removeSilence){
+    setStatus("Detecting pauses and trimming dead air…");
+    const logs:string[]=[];
+    const onLog=({message}:{message:string})=>logs.push(message);
+    ff.on("log",onLog);
+    try{await ff.exec(["-ss",String(c.start),"-i",input,"-t",String(clipDuration),"-vn","-af","silencedetect=noise=-35dB:d=0.45","-f","null","-"]);}
+    catch(error){console.warn("Silence detection unavailable; exporting the full selected range.",error);}
+    finally{ff.off("log",onLog);}
+    keepRanges=parseSilenceLog(logs.join("\n"),clipDuration);
+   }
+   const crop=ratio==="9:16"?"crop=ih*9/16:ih:min(max(iw*"+(cx??.5).toFixed(3)+"-ih*9/32\\,0)\\,iw-ih*9/16):0,scale=1080:1920":ratio==="1:1"?"crop=min(iw\\,ih):min(iw\\,ih),scale=1080:1080":"scale=1920:-2";
+   let subtitlePath:string|undefined;
+   if(captions&&transcript.length){
+    const ass=captionsToAss(transcript,c.start,c.end);
+    await ff.writeFile("clip-captions.ass",new TextEncoder().encode(remapAssToCutTimeline(ass,keepRanges)));
+    subtitlePath="clip-captions.ass";
+   }
+   const filterGraph=buildClipFilterGraph(keepRanges,crop,c.start,subtitlePath);
+   const output="clip-"+c.id+".mp4";
+   setStatus(removeSilence?"Removing pauses and rendering captions…":"Rendering selected clip…");
+   await ff.exec(["-i",input,"-filter_complex",filterGraph,"-map","[vout]","-map","[acat]","-c:v","libx264","-preset","slow","-crf","16","-c:a","aac","-movflags","+faststart",output]);
+   const bytes=await ff.readFile(output);
+   const blob=new Blob([bytes as BlobPart],{type:"video/mp4"});
+   const objectUrl=URL.createObjectURL(blob);
+   setExports(prev=>({...prev,[c.id]:objectUrl}));
+   const a=document.createElement("a");a.href=objectUrl;a.download=output;a.click();
+   if(captions&&transcript.length)downloadSrt(c);
+   const secondsSaved=Math.max(0,clipDuration-keepRanges.reduce((sum,r)=>sum+r.end-r.start,0));
+   setStatus("Clip exported · "+Math.round(secondsSaved*10)/10+"s silence removed · "+(captions&&transcript.length?"captions burned in":"no captions"));
+  }catch(e:any){alert("Export failed: "+(e.message||e));setStatus("Export failed");}
+  finally{setBusy(false);}
+ }
  async function exportClipNative(c:Clip){
   if(!file)return;
   setBusy(true);setNativeProgress(0);setNativePhase("Preparing local FFmpeg…");setStatus("Native FFmpeg · starting");
