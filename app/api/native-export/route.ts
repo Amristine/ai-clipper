@@ -48,8 +48,8 @@ function hardwareEncoders(platform: NodeJS.Platform): Encoder[] {
   // encoder even when the driver/device cannot initialize, so every attempt
   // is validated by actually encoding and errors fall through to the next.
   const encoders: Encoder[] = [
-    { name: "h264_nvenc", label: "NVIDIA NVENC", args: ["-preset", "p5", "-cq", "18"] },
-    { name: "h264_amf", label: "AMD AMF", args: ["-quality", "quality", "-rc", "cqp", "-qp_i", "18", "-qp_p", "18"] },
+    { name: "h264_nvenc", label: "NVIDIA NVENC", args: ["-preset", "p6", "-cq", "16"] },
+    { name: "h264_amf", label: "AMD AMF", args: ["-quality", "quality", "-rc", "cqp", "-qp_i", "16", "-qp_p", "16"] },
     { name: "h264_qsv", label: "Intel Quick Sync", args: ["-preset", "medium", "-global_quality", "18"] },
   ];
   if (platform === "darwin") {
