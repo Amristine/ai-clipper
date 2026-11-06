@@ -58,7 +58,8 @@ export async function transcribeVideoLocally(file:File, ffmpeg:FFmpeg, onStatus:
       })).filter((s:CaptionSegment)=>s.text&&Number.isFinite(s.start)&&Number.isFinite(s.end)&&s.end>s.start);
     }
     if(!segments.length&&result.text){
-      const audioSeconds=Math.max(1,(audio.byteLength-44)/32000);
+      const audioBytes=audio instanceof Uint8Array?audio.byteLength:new TextEncoder().encode(audio).byteLength;
+      const audioSeconds=Math.max(1,(audioBytes-44)/32000);
       return [{start:0,end:audioSeconds,text:String(result.text).trim()}];
     }
     return segments;
