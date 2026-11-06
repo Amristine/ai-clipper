@@ -39,10 +39,6 @@ function run(binary: string, args: string[], onProgress?: (outTimeMs:number)=>vo
     child.on("close", code => resolve({ code: code ?? -1, output }));
   });
 }
-function escapeFilterPath(p: string) {
-  return p.replace(/\\/g, "/").replace(/:/g, "\\:").replace(/'/g, "\\'");
-}
-
 type Encoder = { name: string; label: string; args: string[] };
 function hardwareEncoders(platform: NodeJS.Platform): Encoder[] {
   // Try broadly compatible H.264 hardware encoders first. FFmpeg may list an
@@ -129,7 +125,7 @@ export async function POST(req: NextRequest) {
 
     if (chosen === "libx264") {
       setNativeExportProgress(jobId,{progress:3,phase:"Hardware encoder unavailable/failed · CPU fallback",encoder:"CPU · libx264"});
-      result = await run(binary, [...inputArgs, "-c:v", "libx264", "-preset", "fast", "-crf", "18", "-progress", "pipe:1", "-nostats", ...outputArgs], outTimeMs => setNativeExportProgress(jobId,{progress:Math.min(96,Math.max(3,Math.round((outTimeMs/1000000/clipDuration)*90)+3)),phase:"Encoding with CPU · libx264",encoder:"CPU · libx264"}));
+      result = await run(binary, [...inputArgs, "-c:v", "libx264", "-preset", "fast", "-crf", "18", "-progress", "pipe:1", "-nostats", ...outputArgs], outTimeMs => setNativeExportProgress(jobId,{progress:Math.min(96,Math.max(3,Math.round((outTimeMs/1000000/progressDuration)*90)+3)),phase:"Encoding with CPU · libx264",encoder:"CPU · libx264"}));
     }
     if (result.code !== 0) {
       return NextResponse.json({
