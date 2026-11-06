@@ -34,7 +34,7 @@ export default function Home() {
     if(questionIndexes.length){
      for(const questionIndex of questionIndexes){
       if(questionIndex<cursor||suggestions.length>=max)continue;
-      const first=caps[questionIndex];const start=Math.max(0,first.start);let end=first.end;const words=[first.text];let j=questionIndex+1;
+      let questionStartIndex=questionIndex;while(questionStartIndex>cursor){const previous=caps[questionStartIndex-1];const gap=caps[questionStartIndex].start-previous.end;const previousText=previous.text.trim();if(gap>0.8||previousText.endsWith(".")||previousText.endsWith("!")||previousText.endsWith("?"))break;questionStartIndex--;}const first=caps[questionStartIndex];const start=Math.max(0,first.start);let end=caps[questionIndex].end;const words=caps.slice(questionStartIndex,questionIndex+1).map(segment=>segment.text);let j=questionIndex+1;
       while(j<caps.length&&end-start<target*1.35){
        const gap=caps[j].start-end;
        if(gap>3&&end-start>=target*.35)break;
