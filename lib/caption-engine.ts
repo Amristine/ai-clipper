@@ -184,7 +184,9 @@ export async function transcribeVideoWithGroq(
   const ranges:Array<{start:number;end:number}>=[];
   for(let start=0;start<duration;start+=240) ranges.push({start,end:Math.min(duration,start+240)});
   const results:CaptionSegment[]=[];
-  let completed=0,part=0;
+  let completed=0,part=0,lastGroqRequestAt=0;
+  const minGroqRequestIntervalMs=3500;
+  const sleep=(ms:number)=>new Promise(resolve=>setTimeout(resolve,ms));
   await ffmpeg.writeFile(input,await fetchFile(file));
   try{
     while(ranges.length){
@@ -223,10 +225,37 @@ export async function transcribeVideoWithGroq(
       }
       const body=new FormData();
       body.append("audio",blob,base+(filename.endsWith(".wav")?".wav":".flac"));
-      onStatus("Groq AI is transcribing · "+(completed+1)+"/"+(completed+ranges.length+1));
-      const response=await fetch("/api/transcribe",{method:"POST",headers:{"x-groq-api-key":apiKey},body});
-      const payload=await response.json().catch(()=>({error:"Transcription service returned an invalid response."}));
-      if(!response.ok) throw new Error(payload.error||"Groq transcription failed ("+response.status+").");
+      let response:Response|undefined;
+      let payload:any=null;
+      for(let attempt=0;attempt<4;attempt++){
+        const spacingWait=Math.max(0,minGroqRequestIntervalMs-(Date.now()-lastGroqRequestAt));
+        if(spacingWait>0){
+          onStatus("Respecting Groq rate limit · waiting "+Math.ceil(spacingWait/1000)+"s");
+          await sleep(spacingWait);
+        }
+        onStatus("Groq AI is transcribing · "+(completed+1)+"/"+(completed+ranges.length+1));
+        lastGroqRequestAt=Date.now();
+        response=await fetch("/api/transcribe",{method:"POST",headers:{"x-groq-api-key":apiKey},body});
+        payload=await response.json().catch(()=>({error:"Transcription service returned an invalid response."}));
+        if(response.ok) break;
+        if(response.status!==429||attempt===3){
+          throw new Error(payload.error||"Groq transcription failed ("+response.status+").");
+        }
+        const headerDelay=Number(response.headers.get("retry-after"));
+        const bodyDelay=Number(payload.retryAfterSeconds);
+        const messageDelay=String(payload.error||"").match(/try again in\\s*([0-9.]+)\\s*s/i);
+        const retrySeconds=Number.isFinite(headerDelay)&&headerDelay>0
+          ?headerDelay
+          :Number.isFinite(bodyDelay)&&bodyDelay>0
+            ?bodyDelay
+            :messageDelay
+              ?Number(messageDelay[1])
+              :Math.min(15,5*(attempt+1));
+        const waitMs=Math.ceil(Math.max(1,retrySeconds)*1000)+300;
+        onStatus("Groq is rate limited · automatically retrying in "+Math.ceil(waitMs/1000)+"s ("+(attempt+1)+"/3)");
+        await sleep(waitMs);
+      }
+      if(!response?.ok) throw new Error(payload?.error||"Groq transcription failed.");
       const timedWords=Array.isArray(payload.words)&&payload.words.length?payload.words:payload.segments;
       if(Array.isArray(timedWords)){
         for(const item of timedWords){
