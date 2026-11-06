@@ -158,7 +158,7 @@ export default function Home() {
    form.append("video",file,file.name);form.append("jobId",jobId);
    form.append("start",String(c.start));form.append("end",String(c.end));
    form.append("ratio",ratio);form.append("cropX",String(cx??.5));form.append("removeSilence",String(removeSilence));
-   if(captions&&transcript.length)form.append("ass",captionsToAss(transcript,c.start,c.end));
+   if(captions&&transcript.length)form.append("ass",captionsToAss(transcript,c.start,c.end,captionStyle,captionPosition,captionSize));
    poller=setInterval(async()=>{
     try{const r=await fetch("/api/native-export/status?jobId="+encodeURIComponent(jobId));if(!r.ok)return;const s=await r.json();if(typeof s.progress==="number")setNativeProgress(Math.max(0,Math.min(100,s.progress)));if(s.phase)setNativePhase(s.phase);if(s.encoder)setStatus("Native FFmpeg · "+s.encoder+" · "+Math.round(s.progress||0)+"%");}catch{}
    },500);
