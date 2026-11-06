@@ -79,7 +79,7 @@ export default function Home() {
    if(provider==="openrouter"||provider==="nvidia"){
     let caps=transcript;
     if(!caps.length){
-     setStatus("Transcribing video locally with Whisper…");
+     setStatus(groqApiKey?"Transcribing with Groq AI…":"Transcribing with local Whisper…");
      let ff=ffmpegRef.current;
      if(!ff){ff=new FFmpeg();ffmpegRef.current=ff;await ff.load({coreURL:await toBlobURL("https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js","text/javascript"),wasmURL:await toBlobURL("https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm","application/wasm")});ffmpegRef.current=ff;}
      caps=groqApiKey?await transcribeVideoWithGroq(file,ff,groqApiKey,duration,setCaptionStatus):await transcribeVideoLocally(file,ff,setCaptionStatus);
