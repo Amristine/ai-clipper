@@ -4,6 +4,7 @@ import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { setNativeExportProgress } from "./progress-store";
+import { buildClipFilterGraph, parseSilenceLog, remapAssToCutTimeline, type ClipRange } from "@/lib/clip-processing";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -50,7 +51,7 @@ function hardwareEncoders(platform: NodeJS.Platform): Encoder[] {
   const encoders: Encoder[] = [
     { name: "h264_nvenc", label: "NVIDIA NVENC", args: ["-preset", "p6", "-cq", "16"] },
     { name: "h264_amf", label: "AMD AMF", args: ["-quality", "quality", "-rc", "cqp", "-qp_i", "16", "-qp_p", "16"] },
-    { name: "h264_qsv", label: "Intel Quick Sync", args: ["-preset", "medium", "-global_quality", "18"] },
+    { name: "h264_qsv", label: "Intel Quick Sync", args: ["-preset", "medium", "-global_quality", "16"] },
   ];
   if (platform === "darwin") {
     encoders.push({ name: "h264_videotoolbox", label: "Apple VideoToolbox", args: ["-b:v", "12M"] });
@@ -68,6 +69,7 @@ export async function POST(req: NextRequest) {
     const start = Number(form.get("start"));
     const end = Number(form.get("end"));
     const ratio = String(form.get("ratio") || "9:16");
+    const removeSilence = String(form.get("removeSilence") ?? "true") !== "false";
     const cropX = Math.max(0, Math.min(1, Number(form.get("cropX") || 0.5)));
     if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end <= start)
       return NextResponse.json({ error: "Invalid clip timestamps" }, { status: 400 });
@@ -81,15 +83,23 @@ export async function POST(req: NextRequest) {
       ? "crop=ih*9/16:ih:min(max(iw*" + cropX.toFixed(3) + "-ih*9/32\\,0)\\,iw-ih*9/16):0,scale=1080:1920"
       : ratio === "1:1" ? "crop=min(iw\\,ih):min(iw\\,ih),scale=1080:1080" : "scale=1920:-2";
 
-    const ass = form.get("ass");
-    let finalFilter = filter;
-    if (typeof ass === "string" && ass.trim()) {
-      const assPath = path.join(workDir, "captions.ass");
-      await writeFile(assPath, ass, "utf8");
-      finalFilter += ",subtitles='" + escapeFilterPath(assPath) + "'";
+    const binary = ffmpegPath();
+    const clipDuration = end - start;
+    let keepRanges: ClipRange[] = [{ start: 0, end: clipDuration }];
+    if (removeSilence) {
+      setNativeExportProgress(jobId,{progress:3,phase:"Detecting long pauses in speech"});
+      const detection = await run(binary, ["-hide_banner", "-ss", String(start), "-i", inputPath, "-t", String(clipDuration), "-vn", "-af", "silencedetect=noise=-35dB:d=0.45", "-f", "null", "-"]);
+      if (detection.code === 0) keepRanges = parseSilenceLog(detection.output, clipDuration);
     }
 
-    const binary = ffmpegPath();
+    const ass = form.get("ass");
+    let subtitlePath: string | undefined;
+    if (typeof ass === "string" && ass.trim()) {
+      subtitlePath = path.join(workDir, "captions.ass");
+      await writeFile(subtitlePath, remapAssToCutTimeline(ass, keepRanges), "utf8");
+    }
+    const filterGraph = buildClipFilterGraph(keepRanges, filter, start, subtitlePath);    
+    const outputDuration = keepRanges.reduce((sum, range) => sum + range.end - range.start, 0);
     const encoderList = await run(binary, ["-hide_banner", "-encoders"]);
     if (encoderList.code !== 0) {
       return NextResponse.json({ error: "FFmpeg could not start. Install FFmpeg and add it to PATH or set FFMPEG_PATH.", details: encoderList.output.slice(-3000) }, { status: 500 });
@@ -99,17 +109,17 @@ export async function POST(req: NextRequest) {
       if (new RegExp("\\b" + name + "\\b").test(encoderList.output)) available.add(name);
     }
 
-    const inputArgs = ["-hide_banner", "-y", "-ss", String(start), "-i", inputPath, "-t", String(end - start), "-vf", finalFilter];
-    const outputArgs = ["-c:a", "aac", "-movflags", "+faststart", outputPath];
+    const inputArgs = ["-hide_banner", "-y", "-i", inputPath, "-filter_complex", filterGraph];
+    const outputArgs = ["-map", "[vout]", "-map", "[acat]", "-c:a", "aac", "-movflags", "+faststart", outputPath];
     const attempts = hardwareEncoders(process.platform).filter(e => available.has(e.name));
-    const clipDuration=Math.max(0.01,end-start);
+    const progressDuration=Math.max(0.01,outputDuration);
     let chosen = "libx264";
     let label = "CPU · libx264";
     let result: { code: number; output: string } = { code: -1, output: "" };
 
     for (const encoder of attempts) {
       setNativeExportProgress(jobId,{progress:3,phase:"Trying "+encoder.label+" hardware encoder",encoder:encoder.label});
-      result = await run(binary, [...inputArgs, "-c:v", encoder.name, ...encoder.args, "-progress", "pipe:1", "-nostats", ...outputArgs], outTimeMs => setNativeExportProgress(jobId,{progress:Math.min(96,Math.max(3,Math.round((outTimeMs/1000000/clipDuration)*90)+3)),phase:"Encoding with "+encoder.label,encoder:encoder.label}));
+      result = await run(binary, [...inputArgs, "-c:v", encoder.name, ...encoder.args, "-progress", "pipe:1", "-nostats", ...outputArgs], outTimeMs => setNativeExportProgress(jobId,{progress:Math.min(96,Math.max(3,Math.round((outTimeMs/1000000/progressDuration)*90)+3)),phase:"Encoding with "+encoder.label,encoder:encoder.label}));
       if (result.code === 0) {
         chosen = encoder.name;
         label = encoder.label;
