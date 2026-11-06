@@ -42,10 +42,14 @@ export async function transcribeVideoLocally(file:File, ffmpeg:FFmpeg, onStatus:
   onStatus("Transcribing audio locally in your browser…");
   const audioUrl = URL.createObjectURL(new Blob([audio as BlobPart],{type:"audio/wav"}));
   try {
-    let result:any = await (whisper as any)(audioUrl,{chunk_length_s:20,stride_length_s:3,return_timestamps:"word"});
-    let segments:CaptionSegment[]=(result.chunks||[]).map((chunk:any)=>({
-      start:Number(chunk.timestamp?.[0]??0), end:Number(chunk.timestamp?.[1]??0), text:String(chunk.text||"").trim()
-    })).filter((s:CaptionSegment)=>s.text&&Number.isFinite(s.start)&&Number.isFinite(s.end)&&s.end>s.start);
+    let result:any=null;
+    let segments:CaptionSegment[]=[];
+    try{
+      result=await (whisper as any)(audioUrl,{chunk_length_s:20,stride_length_s:3,return_timestamps:"word"});
+      segments=(result.chunks||[]).map((chunk:any)=>({
+        start:Number(chunk.timestamp?.[0]??0), end:Number(chunk.timestamp?.[1]??0), text:String(chunk.text||"").trim()
+      })).filter((s:CaptionSegment)=>s.text&&Number.isFinite(s.start)&&Number.isFinite(s.end)&&s.end>s.start);
+    }catch(error){console.warn("Whisper word alignment failed; retrying segment timestamps.",error);}
     // Fall back to Whisper segment timestamps when the model cannot align individual words.
     if(!segments.length){
       result=await (whisper as any)(audioUrl,{chunk_length_s:30,stride_length_s:5,return_timestamps:true});
