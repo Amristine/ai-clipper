@@ -94,7 +94,7 @@ export async function POST(req: NextRequest) {
       subtitlePath = path.join(workDir, "captions.ass");
       await writeFile(subtitlePath, remapAssToCutTimeline(ass, keepRanges), "utf8");
     }
-    const filterGraph = buildClipFilterGraph(keepRanges, filter, start, subtitlePath);    
+    const filterGraph = buildClipFilterGraph(keepRanges, filter, 0, subtitlePath);    
     const outputDuration = keepRanges.reduce((sum, range) => sum + range.end - range.start, 0);
     const encoderList = await run(binary, ["-hide_banner", "-encoders"]);
     if (encoderList.code !== 0) {
@@ -105,7 +105,7 @@ export async function POST(req: NextRequest) {
       if (new RegExp("\\b" + name + "\\b").test(encoderList.output)) available.add(name);
     }
 
-    const inputArgs = ["-hide_banner", "-y", "-i", inputPath, "-filter_complex", filterGraph];
+    const inputArgs = ["-hide_banner", "-y", "-ss", String(start), "-i", inputPath, "-filter_complex", filterGraph];
     const outputArgs = ["-map", "[vout]", "-map", "[acat]", "-c:a", "aac", "-movflags", "+faststart", outputPath];
     const attempts = hardwareEncoders(process.platform).filter(e => available.has(e.name));
     const progressDuration=Math.max(0.01,outputDuration);
