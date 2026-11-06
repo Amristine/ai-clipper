@@ -117,6 +117,16 @@ export default function Home() {
   }catch(e:any){setStatus("Analysis failed");alert(e.message||String(e));}finally{setBusy(false);}
  }
  async function generateCaptions():Promise<CaptionSegment[]>{if(!file)return [];setBusy(true);try{let ff=ffmpegRef.current;if(!ff){ff=new FFmpeg();ffmpegRef.current=ff;await ff.load({coreURL:await toBlobURL("https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js","text/javascript"),wasmURL:await toBlobURL("https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm","application/wasm")});ffmpegRef.current=ff;}const caps=await transcribeVideoLocally(file,ff,setCaptionStatus);setTranscript(caps);setCaptionStatus(`Ready · ${caps.length} caption segments`);return caps;}catch(e:any){setCaptionStatus("Transcription failed");alert("Caption generation failed: "+(e.message||e));return [];}finally{setBusy(false);}}
+ async function checkCloudProvider(){
+  if(provider!=="openrouter"&&provider!=="nvidia")return;
+  setProviderTesting(true);setProviderCheck("Testing "+provider+" connection…");
+  try{
+   await testCloudProvider(provider as "openrouter"|"nvidia",apiKey,model);
+   setProviderCheck("Connection successful · "+model);
+  }catch(error:any){
+   setProviderCheck("Connection failed · "+(error.message||String(error)));
+  }finally{setProviderTesting(false);}
+ }
  function downloadSrt(clip:Clip){const srt=captionsToSrt(transcript,clip.start,clip.end);if(!srt){alert("Generate captions first.");return;}const u=URL.createObjectURL(new Blob([srt],{type:"text/plain;charset=utf-8"}));const a=document.createElement("a");a.href=u;a.download=`clip-${clip.id}.srt`;a.click();URL.revokeObjectURL(u);}
  async function exportClip(c:Clip){
   if(!file)return;
