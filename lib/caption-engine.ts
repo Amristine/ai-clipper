@@ -367,3 +367,88 @@ export async function transcribeVideoWithGemini(
   return results;
 }
 
+/**
+ * Gemini 3.5 Transcribe provides native word-level offsets and multilingual
+ * speech recognition through Google's Interactions API.
+ */
+export async function transcribeVideoWithGemini(
+  file:File,
+  ffmpeg:FFmpeg,
+  apiKey:string,
+  duration:number,
+  onStatus:(status:string)=>void
+):Promise<CaptionSegment[]> {
+  if(!apiKey.trim()) throw new Error("Add your Gemini API key in AI settings to use Gemini transcription.");
+  if(!Number.isFinite(duration)||duration<=0) throw new Error("Wait for the video preview to finish loading, then generate captions.");
+  const input="gemini-source."+((file.name.split(".").pop()||"mp4").replace(/[^a-z0-9]/gi,""));
+  const ranges:Array<{start:number;end:number}>=[];
+  for(let start=0;start<duration;start+=240) ranges.push({start,end:Math.min(duration,start+240)});
+  const results:CaptionSegment[]=[];
+  let completed=0,part=0;
+  await ffmpeg.writeFile(input,await fetchFile(file));
+  try{
+    while(ranges.length){
+      const range=ranges.shift()!;
+      const partDuration=range.end-range.start;
+      const base="gemini-audio-"+(part++);
+      onStatus("Preparing audio for Gemini AI · "+(completed+1)+"/"+(completed+ranges.length+1));
+      let blob:Blob;
+      let filename=base+".flac";
+      try{
+        await ffmpeg.exec(["-ss",String(range.start),"-i",input,"-t",String(partDuration),"-vn","-ac","1","-ar","16000","-c:a","flac",filename]);
+        const audio=await ffmpeg.readFile(filename);
+        blob=new Blob([audio as BlobPart],{type:"audio/flac"});
+      }catch{
+        try{await ffmpeg.deleteFile(filename);}catch{}
+        if(partDuration>75){
+          const middle=range.start+partDuration/2;
+          ranges.unshift({start:middle,end:range.end},{start:range.start,end:middle});
+          continue;
+        }
+        filename=base+".wav";
+        await ffmpeg.exec(["-ss",String(range.start),"-i",input,"-t",String(partDuration),"-vn","-ac","1","-ar","16000","-c:a","pcm_s16le",filename]);
+        const audio=await ffmpeg.readFile(filename);
+        blob=new Blob([audio as BlobPart],{type:"audio/wav"});
+      }finally{
+        try{await ffmpeg.deleteFile(filename);}catch{}
+      }
+      if(blob.size>4*1024*1024&&partDuration>45){
+        const middle=range.start+partDuration/2;
+        ranges.unshift({start:middle,end:range.end},{start:range.start,end:middle});
+        continue;
+      }
+      const body=new FormData();
+      body.append("audio",blob,base+(filename.endsWith(".wav")?".wav":".flac"));
+      onStatus("Gemini AI is transcribing · "+(completed+1)+"/"+(completed+ranges.length+1));
+      const response=await fetch("/api/transcribe",{
+        method:"POST",
+        headers:{"x-transcription-engine":"gemini","x-gemini-api-key":apiKey},
+        body,
+      });
+      const payload=await response.json().catch(()=>({error:"Gemini transcription service returned an invalid response."}));
+      if(!response.ok) throw new Error(payload.error||"Gemini transcription failed ("+response.status+").");
+      const timedWords=Array.isArray(payload.words)&&payload.words.length?payload.words:payload.segments;
+      if(Array.isArray(timedWords)){
+        for(const item of timedWords){
+          const text=String(item.word??item.text??"").trim();
+          const start=Number(item.start),end=Number(item.end);
+          if(text&&Number.isFinite(start)&&Number.isFinite(end)&&end>start){
+            results.push({start:start+range.start,end:end+range.start,text});
+          }
+        }
+      }
+      if(!timedWords?.length&&payload.text){
+        results.push({start:range.start,end:range.end,text:String(payload.text).trim()});
+      }
+      if(!timedWords?.length&&!payload.text) throw new Error("Gemini returned no speech for audio chunk "+(completed+1)+".");
+      completed++;
+      onStatus("Gemini AI captions · "+completed+" audio chunk(s) complete");
+    }
+  }finally{
+    try{await ffmpeg.deleteFile(input);}catch{}
+  }
+  results.sort((a,b)=>a.start-b.start);
+  if(!results.length) throw new Error("Gemini did not detect speech in this video.");
+  return results;
+}
+
