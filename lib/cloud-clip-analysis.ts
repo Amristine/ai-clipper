@@ -32,7 +32,7 @@ function messageText(content: unknown): string {
 }
 
 function extractJson(text: string): any {
-  const cleaned = text.replace(/^﻿/, "").replace(/^s*```(?:json)?/i, "").replace(/```s*$/, "").trim();
+  const cleaned = text.replace(/^\uFEFF/, "").replace(/^\s*```(?:json)?/i, "").replace(/```\s*$/, "").trim();
   const first = cleaned.indexOf("{");
   const last = cleaned.lastIndexOf("}");
   if (first < 0 || last <= first) throw new Error("The selected model did not return JSON clip suggestions. Try another model.");
