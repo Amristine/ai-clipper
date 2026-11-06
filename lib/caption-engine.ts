@@ -42,11 +42,21 @@ export async function transcribeVideoLocally(file:File, ffmpeg:FFmpeg, onStatus:
   onStatus("Transcribing audio locally in your browser…");
   const audioUrl = URL.createObjectURL(new Blob([audio as BlobPart],{type:"audio/wav"}));
   try {
-    const result:any = await (whisper as any)(audioUrl,{chunk_length_s:20,stride_length_s:3,return_timestamps:"word"});
-    const segments:CaptionSegment[]=(result.chunks||[]).map((chunk:any)=>({
+    let result:any = await (whisper as any)(audioUrl,{chunk_length_s:20,stride_length_s:3,return_timestamps:"word"});
+    let segments:CaptionSegment[]=(result.chunks||[]).map((chunk:any)=>({
       start:Number(chunk.timestamp?.[0]??0), end:Number(chunk.timestamp?.[1]??0), text:String(chunk.text||"").trim()
-    })).filter((s:CaptionSegment)=>s.text&&s.end>s.start);
-    if (!segments.length && result.text) return [{start:0,end:Math.max(1,Math.min(file.size/1000000,8)),text:String(result.text).trim()}];
+    })).filter((s:CaptionSegment)=>s.text&&Number.isFinite(s.start)&&Number.isFinite(s.end)&&s.end>s.start);
+    // Fall back to Whisper segment timestamps when the model cannot align individual words.
+    if(!segments.length){
+      result=await (whisper as any)(audioUrl,{chunk_length_s:30,stride_length_s:5,return_timestamps:true});
+      segments=(result.chunks||[]).map((chunk:any)=>({
+        start:Number(chunk.timestamp?.[0]??0), end:Number(chunk.timestamp?.[1]??0), text:String(chunk.text||"").trim()
+      })).filter((s:CaptionSegment)=>s.text&&Number.isFinite(s.start)&&Number.isFinite(s.end)&&s.end>s.start);
+    }
+    if(!segments.length&&result.text){
+      const audioSeconds=Math.max(1,(audio.byteLength-44)/32000);
+      return [{start:0,end:audioSeconds,text:String(result.text).trim()}];
+    }
     return segments;
   } finally { URL.revokeObjectURL(audioUrl); }
 }
