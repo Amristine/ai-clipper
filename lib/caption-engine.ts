@@ -166,3 +166,72 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 ${events}
 `;
 }
+/**
+ * Fast cloud transcription through Groq Whisper Large V3 Turbo.
+ * Audio is extracted locally into short FLAC chunks; only audio is sent to
+ * the same-origin API route. Word timestamps are kept for animated captions.
+ */
+export async function transcribeVideoWithGroq(
+  file:File,
+  ffmpeg:FFmpeg,
+  apiKey:string,
+  duration:number,
+  onStatus:(status:string)=>void
+):Promise<CaptionSegment[]> {
+  if(!apiKey.trim()) throw new Error("Add your Groq API key to generate AI captions.");
+  if(!Number.isFinite(duration)||duration<=0) throw new Error("Wait for the video preview to finish loading, then generate captions.");
+  const input="groq-source."+((file.name.split(".").pop()||"mp4").replace(/[^a-z0-9]/gi,""));
+  const outputPrefix="groq-audio-";
+  const ranges:Array<{start:number;end:number}>=[];
+  for(let start=0;start<duration;start+=240) ranges.push({start,end:Math.min(duration,start+240)});
+  const results:CaptionSegment[]=[];
+  let completed=0,part=0;
+  await ffmpeg.writeFile(input,await fetchFile(file));
+  try{
+    while(ranges.length){
+      const range=ranges.shift()!;
+      const name=outputPrefix+(part++)+".flac";
+      const partDuration=range.end-range.start;
+      onStatus("Preparing audio for AI captions · "+(completed+1)+"/"+(completed+ranges.length+1));
+      await ffmpeg.exec(["-ss",String(range.start),"-i",input,"-t",String(partDuration),"-vn","-ac","1","-ar","16000","-c:a","flac",name]);
+      const audio=await ffmpeg.readFile(name);
+      const blob=new Blob([audio as BlobPart],{type:"audio/flac"});
+      try{await ffmpeg.deleteFile(name);}catch{}
+      // Stay below common serverless request-body limits. Split oversized
+      // chunks and retry them rather than failing on long/noisy recordings.
+      if(blob.size>4*1024*1024&&partDuration>45){
+        const middle=range.start+partDuration/2;
+        ranges.unshift({start:middle,end:range.end},{start:range.start,end:middle});
+        continue;
+      }
+      const body=new FormData();
+      body.append("audio",blob,"clipforge-audio-"+(completed+1)+".flac");
+      onStatus("Groq AI is transcribing · "+(completed+1)+"/"+(completed+ranges.length+1));
+      const response=await fetch("/api/transcribe",{method:"POST",headers:{"x-groq-api-key":apiKey},body});
+      const payload=await response.json().catch(()=>({error:"Transcription service returned an invalid response."}));
+      if(!response.ok) throw new Error(payload.error||"Groq transcription failed ("+response.status+").");
+      const timedWords=Array.isArray(payload.words)&&payload.words.length?payload.words:payload.segments;
+      if(Array.isArray(timedWords)){
+        for(const item of timedWords){
+          const text=String(item.word??item.text??"").trim();
+          const start=Number(item.start),end=Number(item.end);
+          if(text&&Number.isFinite(start)&&Number.isFinite(end)&&end>start){
+            results.push({start:start+range.start,end:end+range.start,text});
+          }
+        }
+      }
+      if(!timedWords?.length&&payload.text){
+        results.push({start:range.start,end:range.end,text:String(payload.text).trim()});
+      }
+      if(!timedWords?.length&&!payload.text) throw new Error("Groq returned no speech for audio chunk "+(completed+1)+".");
+      completed++;
+      onStatus("AI captions · "+completed+" audio chunk(s) complete");
+    }
+  }finally{
+    try{await ffmpeg.deleteFile(input);}catch{}
+  }
+  results.sort((a,b)=>a.start-b.start);
+  if(!results.length) throw new Error("No speech was detected in this video.");
+  return results;
+}
+
