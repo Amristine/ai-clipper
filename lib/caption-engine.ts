@@ -91,8 +91,19 @@ export function captionsToSrt(captions:CaptionSegment[],clipStart:number,clipEnd
   return groupCaptionSegments(captions).filter(c=>c.end>clipStart&&c.start<clipEnd).map((c,i)=>`${i+1}\n${stamp(Math.max(0,c.start-clipStart))} --> ${stamp(Math.min(clipEnd-clipStart,c.end-clipStart))}\n${c.text}\n`).join("\n");
 }
 
-/** Create bold, italic, all-caps social-video captions. Times are clip-relative. */
-export function captionsToAss(captions:CaptionSegment[],clipStart:number,clipEnd:number):string {
+export type CaptionStyle = "word-cut" | "marker-sweep" | "negative-keywords" | "karaoke" | "clean";
+export type CaptionPosition = "top" | "middle" | "bottom";
+export type CaptionSize = "small" | "medium" | "large";
+
+/** Render selectable short-form caption presets, position and size as ASS subtitles. */
+export function captionsToAss(
+  captions:CaptionSegment[],
+  clipStart:number,
+  clipEnd:number,
+  style:CaptionStyle="word-cut",
+  position:CaptionPosition="bottom",
+  size:CaptionSize="medium"
+):string {
   const time=(s:number)=>{const cs=Math.max(0,Math.round(s*100)),h=Math.floor(cs/360000),m=Math.floor(cs/6000)%60,sec=Math.floor(cs/100)%60,centi=cs%100;return `${h}:${String(m).padStart(2,"0")}:${String(sec).padStart(2,"0")}.${String(centi).padStart(2,"0")}`;};
   const escape=(s:string)=>s.replace(/\\/g,"\\\\").replace(/{/g,"\\{").replace(/}/g,"\\}").replace(/\n/g," ");
   const wrap=(value:string)=>{
@@ -106,12 +117,39 @@ export function captionsToAss(captions:CaptionSegment[],clipStart:number,clipEnd
     if(line)lines.push(line);
     return lines.slice(0,2).join("\\N");
   };
+  const fontSize=size==="small"?54:size==="large"?96:76;
+  const alignment=position==="top"?8:position==="middle"?5:2;
+  const marginV=position==="top"?175:position==="middle"?0:190;
+  const presets:Record<CaptionStyle,{primary:string;secondary:string;outline:string;back:string;border:number;outlineSize:number;shadow:number;bold:number;italic:number}> = {
+    "word-cut":{primary:"&H00FFFFFF",secondary:"&H00FFFFFF",outline:"&H00000000",back:"&H80000000",border:1,outlineSize:5,shadow:2,bold:1,italic:0},
+    "marker-sweep":{primary:"&H00000000",secondary:"&H00000000",outline:"&H00B78AFF",back:"&H00B78AFF",border:3,outlineSize:12,shadow:0,bold:1,italic:0},
+    "negative-keywords":{primary:"&H00FFFFFF",secondary:"&H0047B7FF",outline:"&H00000000",back:"&H80000000",border:1,outlineSize:4,shadow:5,bold:1,italic:0},
+    "karaoke":{primary:"&H00FFFFFF",secondary:"&H0000D7FF",outline:"&H00000000",back:"&H80000000",border:1,outlineSize:5,shadow:2,bold:1,italic:1},
+    "clean":{primary:"&H00FFFFFF",secondary:"&H00FFFFFF",outline:"&H99000000",back:"&H80000000",border:1,outlineSize:2,shadow:0,bold:0,italic:0}
+  };
+  const preset=presets[style]||presets["word-cut"];
   const events=groupCaptionSegments(captions).filter(c=>c.end>clipStart&&c.start<clipEnd).map(c=>{
     const start=Math.max(clipStart,c.start)-clipStart,end=Math.min(clipEnd,c.end)-clipStart;
     if(end<=start)return "";
-    const text=wrap(escape(c.text));
+    let text=wrap(escape(c.text));
+    if(style==="karaoke"){
+      const sourceWords=captions.filter(word=>word.end>c.start&&word.start<c.end);
+      const tokens=sourceWords.flatMap(word=>{
+        const parts=word.text.trim().split(/\s+/).filter(Boolean);
+        return parts.map(part=>({text:part,duration:Math.max(0.02,(word.end-word.start)/Math.max(1,parts.length))}));
+      });
+      const total=tokens.reduce((sum,token)=>sum+token.duration,0)||1;
+      let used=0;
+      text=tokens.map((token,index)=>{
+        const centiseconds=index===tokens.length-1?Math.max(1,Math.round((end-start)*100)-used):Math.max(1,Math.round((end-start)*100*token.duration/total));
+        used+=centiseconds;
+        return `{\\kf${centiseconds}}${escape(token.text.toLocaleUpperCase())}`;
+      }).join(" ");
+      if(!tokens.length)text=wrap(escape(c.text));
+    }
     return `Dialogue: 0,${time(start)},${time(end)},Caption,,0,0,0,,${text}`;
   }).filter(Boolean).join("\n");
+
   return `[Script Info]
 ScriptType: v4.00+
 PlayResX: 1080
@@ -121,7 +159,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Caption,Arial,76,&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,-1,-1,0,0,100,100,0,0,1,5,2,2,75,75,540,1
+Style: Caption,Arial,${fontSize},${preset.primary},${preset.secondary},${preset.outline},${preset.back},${preset.bold},${preset.italic},0,0,100,100,0,0,${preset.border},${preset.outlineSize},${preset.shadow},${alignment},75,75,${marginV},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
