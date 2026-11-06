@@ -48,7 +48,23 @@ export async function POST(request: Request) {
 
     if (!upstream.ok) {
       const message = result?.error?.message || result?.error || "Groq transcription failed.";
-      return NextResponse.json({ error: String(message) }, { status: upstream.status });
+      const messageText = String(message);
+      const headerDelay = Number(upstream.headers.get("retry-after"));
+      const messageDelay = messageText.match(/try again in\\s*([0-9.]+)\\s*s/i);
+      const retryAfterSeconds = upstream.status === 429
+        ? (Number.isFinite(headerDelay) && headerDelay > 0
+            ? headerDelay
+            : messageDelay
+              ? Number(messageDelay[1])
+              : 5)
+        : undefined;
+      return NextResponse.json(
+        { error: messageText, ...(retryAfterSeconds ? { retryAfterSeconds } : {}) },
+        {
+          status: upstream.status,
+          headers: retryAfterSeconds ? { "Retry-After": String(retryAfterSeconds) } : undefined,
+        }
+      );
     }
 
     return NextResponse.json({
