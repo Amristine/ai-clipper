@@ -243,7 +243,7 @@ export async function transcribeVideoWithGroq(
         }
         const headerDelay=Number(response.headers.get("retry-after"));
         const bodyDelay=Number(payload.retryAfterSeconds);
-        const messageDelay=String(payload.error||"").match(/try again in\\s*([0-9.]+)\\s*s/i);
+        const messageDelay=String(payload.error||"").match(/try again in\s*([0-9.]+)\s*s/i);
         const retrySeconds=Number.isFinite(headerDelay)&&headerDelay>0
           ?headerDelay
           :Number.isFinite(bodyDelay)&&bodyDelay>0
