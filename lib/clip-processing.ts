@@ -43,42 +43,19 @@ const secondsToAssTime = (seconds: number) => {
   return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}.${String(c).padStart(2, "0")}`;
 };
 
-/** Moves existing clip-relative ASS caption events onto the silence-trimmed timeline. */
+/** Moves clip-relative ASS caption events onto the silence-trimmed timeline. */
 export function remapAssToCutTimeline(ass: string, ranges: ClipRange[]): string {
-  const output: string[] = [];
-  let outputOffset = 0;
-  for (const line of ass.split(/\r?\n/)) {
-    if (!line.startsWith("Dialogue:")) { output.push(line); continue; }
+  const lines = ass.split(/\r?\n/);
+  const header = lines.filter(line => !line.startsWith("Dialogue:"));
+  const dialogueLines = lines.filter(line => line.startsWith("Dialogue:"));
+  const remapped: string[] = [];
+
+  for (const line of dialogueLines) {
     const fields = line.slice("Dialogue:".length).trimStart().split(",", 10);
     if (fields.length < 10) continue;
     const eventStart = assTimeToSeconds(fields[1]);
     const eventEnd = assTimeToSeconds(fields[2]);
-    let offset = 0;
-    for (const range of ranges) {
-      const from = Math.max(eventStart, range.start);
-      const to = Math.min(eventEnd, range.end);
-      if (to > from) {
-        const copy = [...fields];
-        copy[1] = secondsToAssTime(outputOffset + from - range.start);
-        copy[2] = secondsToAssTime(outputOffset + to - range.start);
-        output.push("Dialogue: " + copy.join(","));
-      }
-      offset += range.end - range.start;
-    }
-    outputOffset = 0;
-  }
-  // The running offset is based on all preceding kept ranges, not on the
-  // original dialogue event, so perform the remap with a clean pass.
-  const header = output.filter(line => !line.startsWith("Dialogue:"));
-  const dialogues: string[] = [];
-  let timelineOffset = 0;
-  const originalLines = ass.split(/\r?\n/).filter(line => line.startsWith("Dialogue:"));
-  for (const line of originalLines) {
-    const fields = line.slice("Dialogue:".length).trimStart().split(",", 10);
-    if (fields.length < 10) continue;
-    const eventStart = assTimeToSeconds(fields[1]);
-    const eventEnd = assTimeToSeconds(fields[2]);
-    timelineOffset = 0;
+    let timelineOffset = 0;
     for (const range of ranges) {
       const from = Math.max(eventStart, range.start);
       const to = Math.min(eventEnd, range.end);
@@ -86,16 +63,16 @@ export function remapAssToCutTimeline(ass: string, ranges: ClipRange[]): string 
         const copy = [...fields];
         copy[1] = secondsToAssTime(timelineOffset + from - range.start);
         copy[2] = secondsToAssTime(timelineOffset + to - range.start);
-        dialogues.push("Dialogue: " + copy.join(","));
+        remapped.push("Dialogue: " + copy.join(","));
       }
       timelineOffset += range.end - range.start;
     }
   }
-  const eventIndex = header.findIndex(line => line.startsWith("Format: Layer,"));
-  const safeHeader = header.filter(line => !line.startsWith("Dialogue:"));
-  if (eventIndex >= 0) safeHeader.splice(eventIndex + 1, 0, ...dialogues);
-  else safeHeader.push(...dialogues);
-  return safeHeader.join("\n");
+
+  const formatIndex = header.findIndex(line => line.startsWith("Format: Layer,"));
+  if (formatIndex >= 0) header.splice(formatIndex + 1, 0, ...remapped);
+  else header.push(...remapped);
+  return header.join("\n");
 }
 
 /** Creates one synchronized video+audio graph, then applies captions after cuts. */
