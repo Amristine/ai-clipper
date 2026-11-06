@@ -49,12 +49,12 @@ export default function Home() {
      }
     }
     // If Whisper did not preserve question punctuation, keep the transcript-based fallback.
-    while(!suggestions.length&&cursor<caps.length&&suggestions.length<max){
+    if(!suggestions.length){while(cursor<caps.length&&suggestions.length<max){
      const first=caps[cursor];const start=Math.max(0,first.start);let end=first.end;const words=[first.text];let j=cursor+1;
      while(j<caps.length&&end-start<target){if(caps[j].start-end>5&&end-start>=target*.55)break;end=caps[j].end;words.push(caps[j].text);j++;}
      if(end-start>=Math.min(8,target*.45)){const title=words.join(" ").replace(/\\s+/g," ").trim();suggestions.push({id:String(suggestions.length+1),start:start,end:Math.min(duration,end),title:title.slice(0,72)||"Speech highlight",score:Math.min(95,65+Math.round(Math.min(title.length,300)/15)),reason:"Selected using local Whisper transcript"});}
      cursor=Math.max(j,cursor+1);
-    }
+    }}
     if(!suggestions.length)throw new Error("Could not build clips from the transcript. Try Gemini API mode.");
     setClips(suggestions);setStatus("Local Whisper · "+suggestions.length+" clip suggestions");setCaptionStatus("Transcript ready · "+caps.length+" segments");return;
    }
