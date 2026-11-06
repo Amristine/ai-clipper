@@ -48,12 +48,12 @@ function hardwareEncoders(platform: NodeJS.Platform): Encoder[] {
   // encoder even when the driver/device cannot initialize, so every attempt
   // is validated by actually encoding and errors fall through to the next.
   const encoders: Encoder[] = [
-    { name: "h264_nvenc", label: "NVIDIA NVENC", args: ["-preset", "p4", "-cq", "23"] },
-    { name: "h264_amf", label: "AMD AMF", args: ["-quality", "balanced", "-rc", "cqp", "-qp_i", "23", "-qp_p", "23"] },
-    { name: "h264_qsv", label: "Intel Quick Sync", args: ["-preset", "medium", "-global_quality", "23"] },
+    { name: "h264_nvenc", label: "NVIDIA NVENC", args: ["-preset", "p5", "-cq", "18"] },
+    { name: "h264_amf", label: "AMD AMF", args: ["-quality", "quality", "-rc", "cqp", "-qp_i", "18", "-qp_p", "18"] },
+    { name: "h264_qsv", label: "Intel Quick Sync", args: ["-preset", "medium", "-global_quality", "18"] },
   ];
   if (platform === "darwin") {
-    encoders.push({ name: "h264_videotoolbox", label: "Apple VideoToolbox", args: ["-b:v", "8M"] });
+    encoders.push({ name: "h264_videotoolbox", label: "Apple VideoToolbox", args: ["-b:v", "12M"] });
   }
   return encoders;
 }
@@ -119,7 +119,7 @@ export async function POST(req: NextRequest) {
 
     if (chosen === "libx264") {
       setNativeExportProgress(jobId,{progress:3,phase:"Hardware encoder unavailable/failed · CPU fallback",encoder:"CPU · libx264"});
-      result = await run(binary, [...inputArgs, "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-progress", "pipe:1", "-nostats", ...outputArgs], outTimeMs => setNativeExportProgress(jobId,{progress:Math.min(96,Math.max(3,Math.round((outTimeMs/1000000/clipDuration)*90)+3)),phase:"Encoding with CPU · libx264",encoder:"CPU · libx264"}));
+      result = await run(binary, [...inputArgs, "-c:v", "libx264", "-preset", "fast", "-crf", "18", "-progress", "pipe:1", "-nostats", ...outputArgs], outTimeMs => setNativeExportProgress(jobId,{progress:Math.min(96,Math.max(3,Math.round((outTimeMs/1000000/clipDuration)*90)+3)),phase:"Encoding with CPU · libx264",encoder:"CPU · libx264"}));
     }
     if (result.code !== 0) {
       return NextResponse.json({
