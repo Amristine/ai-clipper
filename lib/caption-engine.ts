@@ -76,7 +76,7 @@ export function captionsToAss(captions:CaptionSegment[],clipStart:number,clipEnd
     const start=Math.max(clipStart,c.start)-clipStart,end=Math.min(clipEnd,c.end)-clipStart;
     if(end<=start)return "";
     const text=wrap(escape(c.text));
-    return `Dialogue: 0,${time(start)},${time(end)},Caption,,0,0,0,,{${"\\\\"}an2}${text}`;
+    return `Dialogue: 0,${time(start)},${time(end)},Caption,,0,0,0,,${text}`;
   }).filter(Boolean).join("\n");
   return `[Script Info]
 ScriptType: v4.00+
