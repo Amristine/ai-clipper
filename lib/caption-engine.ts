@@ -181,7 +181,6 @@ export async function transcribeVideoWithGroq(
   if(!apiKey.trim()) throw new Error("Add your Groq API key to generate AI captions.");
   if(!Number.isFinite(duration)||duration<=0) throw new Error("Wait for the video preview to finish loading, then generate captions.");
   const input="groq-source."+((file.name.split(".").pop()||"mp4").replace(/[^a-z0-9]/gi,""));
-  const outputPrefix="groq-audio-";
   const ranges:Array<{start:number;end:number}>=[];
   for(let start=0;start<duration;start+=240) ranges.push({start,end:Math.min(duration,start+240)});
   const results:CaptionSegment[]=[];
@@ -190,22 +189,40 @@ export async function transcribeVideoWithGroq(
   try{
     while(ranges.length){
       const range=ranges.shift()!;
-      const name=outputPrefix+(part++)+".flac";
       const partDuration=range.end-range.start;
+      const base="groq-audio-"+(part++);
       onStatus("Preparing audio for AI captions · "+(completed+1)+"/"+(completed+ranges.length+1));
-      await ffmpeg.exec(["-ss",String(range.start),"-i",input,"-t",String(partDuration),"-vn","-ac","1","-ar","16000","-c:a","flac",name]);
-      const audio=await ffmpeg.readFile(name);
-      const blob=new Blob([audio as BlobPart],{type:"audio/flac"});
-      try{await ffmpeg.deleteFile(name);}catch{}
+      let blob:Blob;
+      let filename=base+".flac";
+      try{
+        await ffmpeg.exec(["-ss",String(range.start),"-i",input,"-t",String(partDuration),"-vn","-ac","1","-ar","16000","-c:a","flac",filename]);
+        const audio=await ffmpeg.readFile(filename);
+        blob=new Blob([audio as BlobPart],{type:"audio/flac"});
+      }catch(flacError){
+        try{await ffmpeg.deleteFile(filename);}catch{}
+        // Some FFmpeg builds omit the FLAC encoder. Use short PCM WAV chunks
+        // as a compatible fallback, keeping each upload under the body limit.
+        if(partDuration>75){
+          const middle=range.start+partDuration/2;
+          ranges.unshift({start:middle,end:range.end},{start:range.start,end:middle});
+          continue;
+        }
+        filename=base+".wav";
+        await ffmpeg.exec(["-ss",String(range.start),"-i",input,"-t",String(partDuration),"-vn","-ac","1","-ar","16000","-c:a","pcm_s16le",filename]);
+        const audio=await ffmpeg.readFile(filename);
+        blob=new Blob([audio as BlobPart],{type:"audio/wav"});
+      }finally{
+        try{await ffmpeg.deleteFile(filename);}catch{}
+      }
       // Stay below common serverless request-body limits. Split oversized
-      // chunks and retry them rather than failing on long/noisy recordings.
+      // compressed or noisy chunks and retry them rather than failing.
       if(blob.size>4*1024*1024&&partDuration>45){
         const middle=range.start+partDuration/2;
         ranges.unshift({start:middle,end:range.end},{start:range.start,end:middle});
         continue;
       }
       const body=new FormData();
-      body.append("audio",blob,"clipforge-audio-"+(completed+1)+".flac");
+      body.append("audio",blob,base+(filename.endsWith(".wav")?".wav":".flac"));
       onStatus("Groq AI is transcribing · "+(completed+1)+"/"+(completed+ranges.length+1));
       const response=await fetch("/api/transcribe",{method:"POST",headers:{"x-groq-api-key":apiKey},body});
       const payload=await response.json().catch(()=>({error:"Transcription service returned an invalid response."}));
