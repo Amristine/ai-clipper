@@ -89,10 +89,10 @@ export default function Home() {
     await ff.writeFile("clip-captions.ass",new TextEncoder().encode(remapAssToCutTimeline(ass,keepRanges)));
     subtitlePath="clip-captions.ass";
    }
-   const filterGraph=buildClipFilterGraph(keepRanges,crop,c.start,subtitlePath);
+   const filterGraph=buildClipFilterGraph(keepRanges,crop,0,subtitlePath);
    const output="clip-"+c.id+".mp4";
    setStatus(removeSilence?"Removing pauses and rendering captions…":"Rendering selected clip…");
-   await ff.exec(["-i",input,"-filter_complex",filterGraph,"-map","[vout]","-map","[acat]","-c:v","libx264","-preset","slow","-crf","16","-c:a","aac","-movflags","+faststart",output]);
+   await ff.exec(["-ss",String(c.start),"-i",input,"-filter_complex",filterGraph,"-map","[vout]","-map","[acat]","-c:v","libx264","-preset","slow","-crf","16","-c:a","aac","-movflags","+faststart",output]);
    const bytes=await ff.readFile(output);
    const blob=new Blob([bytes as BlobPart],{type:"video/mp4"});
    const objectUrl=URL.createObjectURL(blob);
