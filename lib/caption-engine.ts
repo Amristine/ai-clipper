@@ -42,7 +42,7 @@ export async function transcribeVideoLocally(file:File, ffmpeg:FFmpeg, onStatus:
   onStatus("Transcribing audio locally in your browser…");
   const audioUrl = URL.createObjectURL(new Blob([audio as BlobPart],{type:"audio/wav"}));
   try {
-    const result:any = await (whisper as any)(audioUrl,{chunk_length_s:30,stride_length_s:5,return_timestamps:true});
+    const result:any = await (whisper as any)(audioUrl,{chunk_length_s:20,stride_length_s:3,return_timestamps:"word"});
     const segments:CaptionSegment[]=(result.chunks||[]).map((chunk:any)=>({
       start:Number(chunk.timestamp?.[0]??0), end:Number(chunk.timestamp?.[1]??0), text:String(chunk.text||"").trim()
     })).filter((s:CaptionSegment)=>s.text&&s.end>s.start);
@@ -51,11 +51,30 @@ export async function transcribeVideoLocally(file:File, ffmpeg:FFmpeg, onStatus:
   } finally { URL.revokeObjectURL(audioUrl); }
 }
 
-export function captionsToSrt(captions:CaptionSegment[],clipStart:number,clipEnd:number):string {
-  const stamp=(seconds:number)=>{const ms=Math.round((seconds%1)*1000),n=Math.floor(seconds);return `${String(Math.floor(n/3600)).padStart(2,"0")}:${String(Math.floor(n/60)%60).padStart(2,"0")}:${String(n%60).padStart(2,"0")},${String(ms).padStart(3,"0")}`;};
-  return captions.filter(c=>c.end>clipStart&&c.start<clipEnd).map((c,i)=>`${i+1}\n${stamp(Math.max(0,c.start-clipStart))} --> ${stamp(Math.min(clipEnd-clipStart,c.end-clipStart))}\n${c.text}\n`).join("\n");
+function groupCaptionSegments(segments:CaptionSegment[],maxWords=4,maxDuration=2.2,maxGap=0.32):CaptionSegment[]{
+  const grouped:CaptionSegment[]=[];let current:CaptionSegment|null=null;
+  for(const segment of segments){
+    const text=segment.text.trim();if(!text||segment.end<=segment.start)continue;
+    if(!current){current={start:segment.start,end:segment.end,text};continue;}
+    const currentWords=current.text.trim().split(/\s+/).length;
+    const nextWords=text.split(/\s+/).length;
+    const previousText=current.text.trim();
+    const completedSentence=previousText.endsWith(".")||previousText.endsWith("!")||previousText.endsWith("?");
+    const gap=segment.start-current.end;
+    if(!completedSentence&&gap<=maxGap&&currentWords+nextWords<=maxWords&&segment.end-current.start<=maxDuration){
+      current={...current,end:Math.max(current.end,segment.end),text:(current.text+" "+text).replace(/\s+/g," ").trim()};
+    }else{
+      grouped.push(current);current={start:segment.start,end:segment.end,text};
+    }
+  }
+  if(current)grouped.push(current);
+  return grouped;
 }
 
+export function captionsToSrt(captions:CaptionSegment[],clipStart:number,clipEnd:number):string {
+  const stamp=(seconds:number)=>{const ms=Math.round((seconds%1)*1000),n=Math.floor(seconds);return `${String(Math.floor(n/3600)).padStart(2,"0")}:${String(Math.floor(n/60)%60).padStart(2,"0")}:${String(n%60).padStart(2,"0")},${String(ms).padStart(3,"0")}`;};
+  return groupCaptionSegments(captions).filter(c=>c.end>clipStart&&c.start<clipEnd).map((c,i)=>`${i+1}\n${stamp(Math.max(0,c.start-clipStart))} --> ${stamp(Math.min(clipEnd-clipStart,c.end-clipStart))}\n${c.text}\n`).join("\n");
+}
 
 /** Create bold, italic, all-caps social-video captions. Times are clip-relative. */
 export function captionsToAss(captions:CaptionSegment[],clipStart:number,clipEnd:number):string {
@@ -72,7 +91,7 @@ export function captionsToAss(captions:CaptionSegment[],clipStart:number,clipEnd
     if(line)lines.push(line);
     return lines.slice(0,2).join("\\N");
   };
-  const events=captions.filter(c=>c.end>clipStart&&c.start<clipEnd).map(c=>{
+  const events=groupCaptionSegments(captions).filter(c=>c.end>clipStart&&c.start<clipEnd).map(c=>{
     const start=Math.max(clipStart,c.start)-clipStart,end=Math.min(clipEnd,c.end)-clipStart;
     if(end<=start)return "";
     const text=wrap(escape(c.text));
