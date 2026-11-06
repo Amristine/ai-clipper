@@ -30,7 +30,26 @@ export default function Home() {
     if(!caps.length)throw new Error("Local Whisper returned no transcript. Try Gemini API mode.");
     const target=Math.max(10,Number(length)||30), max=Math.max(1,Number(clipCount)||5);
     const suggestions:Clip[]=[];let cursor=0;
-    while(cursor<caps.length&&suggestions.length<max){
+    const questionIndexes=caps.map((segment,index)=>({segment,index})).filter(item=>/[?？]/.test(item.segment.text)).map(item=>item.index);
+    if(questionIndexes.length){
+     for(const questionIndex of questionIndexes){
+      if(questionIndex<cursor||suggestions.length>=max)continue;
+      const first=caps[questionIndex];const start=Math.max(0,first.start);let end=first.end;const words=[first.text];let j=questionIndex+1;
+      while(j<caps.length&&end-start<target*1.35){
+       const gap=caps[j].start-end;
+       if(gap>3&&end-start>=target*.35)break;
+       end=caps[j].end;words.push(caps[j].text);j++;
+       if(end-start>=target&&/[.!?][\\"')\\]]?$/.test(words[words.length-1].trim()))break;
+      }
+      if(end-start>=Math.min(8,target*.4)){
+       const title=words.join(" ").replace(/\\s+/g," ").trim();
+       suggestions.push({id:String(suggestions.length+1),start:start,end:Math.min(duration,end),title:title.slice(0,72)||"Question and answer",score:Math.min(97,76+Math.round(Math.min(title.length,300)/18)),reason:"Question followed by its answer · local transcript selection"});
+       cursor=Math.max(cursor,j);
+      }
+     }
+    }
+    // If Whisper did not preserve question punctuation, keep the transcript-based fallback.
+    while(!suggestions.length&&cursor<caps.length&&suggestions.length<max){
      const first=caps[cursor];const start=Math.max(0,first.start);let end=first.end;const words=[first.text];let j=cursor+1;
      while(j<caps.length&&end-start<target){if(caps[j].start-end>5&&end-start>=target*.55)break;end=caps[j].end;words.push(caps[j].text);j++;}
      if(end-start>=Math.min(8,target*.45)){const title=words.join(" ").replace(/\\s+/g," ").trim();suggestions.push({id:String(suggestions.length+1),start:start,end:Math.min(duration,end),title:title.slice(0,72)||"Speech highlight",score:Math.min(95,65+Math.round(Math.min(title.length,300)/15)),reason:"Selected using local Whisper transcript"});}
