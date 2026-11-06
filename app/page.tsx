@@ -39,7 +39,7 @@ export default function Home() {
        const gap=caps[j].start-end;
        if(gap>3&&end-start>=target*.35)break;
        end=caps[j].end;words.push(caps[j].text);j++;
-       if(end-start>=target&&/[.!?][\\"')\\]]?$/.test(words[words.length-1].trim()))break;
+       const lastWords=words[words.length-1].trim();if(end-start>=target&&(lastWords.endsWith(".")||lastWords.endsWith("!")||lastWords.endsWith("?")))break;
       }
       if(end-start>=Math.min(8,target*.4)){
        const title=words.join(" ").replace(/\\s+/g," ").trim();
