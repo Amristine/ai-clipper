@@ -12,7 +12,6 @@ export async function extractVideoFrames(
   video.muted = true;
   video.preload = "auto";
   video.playsInline = true;
-  video.src = objectUrl;
 
   const waitFor = (eventName: "loadedmetadata" | "seeked", timeoutMs = 15000) =>
     new Promise<void>((resolve, reject) => {
@@ -32,7 +31,9 @@ export async function extractVideoFrames(
     });
 
   try {
-    await waitFor("loadedmetadata");
+    const metadataReady = waitFor("loadedmetadata");
+    video.src = objectUrl;
+    await metadataReady;
     const duration = Number.isFinite(video.duration) ? video.duration : 0;
     if (!duration || !video.videoWidth || !video.videoHeight) throw new Error("The uploaded video has no readable duration or dimensions.");
 
