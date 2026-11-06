@@ -50,7 +50,7 @@ export async function POST(request: Request) {
       const message = result?.error?.message || result?.error || "Groq transcription failed.";
       const messageText = String(message);
       const headerDelay = Number(upstream.headers.get("retry-after"));
-      const messageDelay = messageText.match(/try again in\\s*([0-9.]+)\\s*s/i);
+      const messageDelay = messageText.match(/try again in\s*([0-9.]+)\s*s/i);
       const retryAfterSeconds = upstream.status === 429
         ? (Number.isFinite(headerDelay) && headerDelay > 0
             ? headerDelay
