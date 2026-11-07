@@ -74,6 +74,7 @@ export async function POST(request: Request) {
         headers: { "x-goog-api-key": geminiKey, "Content-Type": "application/json" },
         body: JSON.stringify({
           model: "gemini-3.5-transcribe",
+          store: false,
           input: [{ type: "audio", uri: uploadedData.file.uri, mime_type: mimeType }],
           generation_config: {
             transcription_config: {
@@ -86,6 +87,18 @@ export async function POST(request: Request) {
       const interactionText = await interaction.text();
       let interactionData: any = {};
       try { interactionData = JSON.parse(interactionText); } catch {}
+      // Gemini Files are temporary, but delete each audio chunk immediately
+      // after inference instead of keeping it until the automatic 48-hour expiry.
+      if (uploadedData.file.name) {
+        try {
+          await fetch(
+            "https://generativelanguage.googleapis.com/v1beta/" + uploadedData.file.name,
+            { method: "DELETE", headers: { "x-goog-api-key": geminiKey }, cache: "no-store" }
+          );
+        } catch (cleanupError) {
+          console.warn("Gemini temporary audio file cleanup failed.", cleanupError);
+        }
+      }
       if (!interaction.ok) {
         const message = interactionData?.error?.message || interactionText || "Gemini transcription failed.";
         return NextResponse.json({ error: String(message) }, { status: interaction.status });
